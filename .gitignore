@@ -1,9 +1,9 @@
 output.txt
 **/__pycache__/
 /wandb
-# *.png
-# *.PNG
-# *.jpg
+*.png
+*.PNG
+*.jpg
 *.pth
 *.pt
 *.npy

@@ -7,7 +7,7 @@ from archs.retinexformer import RetinexFormer
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 parser = argparse.ArgumentParser(description="Script for prediction")
-parser.add_argument('-p', '--config', type=str, default='./options/inference/LOLBlur.yml', help = 'Config file of prediction')
+parser.add_argument('-p', '--config', type=str, default='./options/inference/default.yml', help = 'Config file of prediction')
 parser.add_argument('-i', '--inp_path', type=str, default='./images/inputs', 
                 help="Folder path")
 args = parser.parse_args()
@@ -15,7 +15,7 @@ args = parser.parse_args()
 
 path_options = args.config
 opt = parse(path_options)
-os.environ["CUDA_VISIBLE_DEVICES"]= "1"
+os.environ["CUDA_VISIBLE_DEVICES"]= "0"
 
 # PyTorch library
 import torch
