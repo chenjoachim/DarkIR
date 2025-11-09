@@ -10,6 +10,8 @@ parser = argparse.ArgumentParser(description="Script for prediction")
 parser.add_argument('-p', '--config', type=str, default='./options/inference/default.yml', help = 'Config file of prediction')
 parser.add_argument('-i', '--inp_path', type=str, default='./images/inputs', 
                 help="Folder path")
+parser.add_argument('-o', '--out_path', type=str, default='./images/results', 
+                help="Folder path")
 args = parser.parse_args()
 
 
@@ -94,10 +96,10 @@ def predict_folder(rank, world_size):
     model = load_model(model, path_weights = opt['save']['path'])
     # create data
     PATH_IMAGES= args.inp_path
-    PATH_RESULTS = './images/results'
+    PATH_RESULTS = args.out_path
 
     #create folder if it doen't exist
-    not os.path.isdir(PATH_RESULTS) and os.mkdir(PATH_RESULTS)
+    os.makedirs(PATH_RESULTS, exist_ok=True)
 
     path_images = [os.path.join(PATH_IMAGES, path) for path in os.listdir(PATH_IMAGES) if path.endswith(('.png', '.PNG', '.jpg', '.JPEG'))]
     path_images = [file for file in path_images if not file.endswith('.csv') and not file.endswith('.txt')]
