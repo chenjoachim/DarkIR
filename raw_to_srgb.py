@@ -3,6 +3,7 @@ import imageio
 import argparse
 import os
 from tqdm import tqdm
+import csv
 
 def raw_to_srgb(raw_image_path, output_image_path):
     """
@@ -40,10 +41,27 @@ def main(args):
         for line in f:
             raw_image_files += line.strip().split()[:2]
 
+    image_dict = {}
+    image_dict['pred_image'] = []
+    image_dict['target_image'] = []
+
     for raw_image_file in tqdm(raw_image_files):
         raw_image_path = os.path.join(raw_image_dir, raw_image_file)
         output_image_path = os.path.join(output_image_dir, raw_image_path.split('Sony/')[-1].replace('.ARW', '.png'))
         raw_to_srgb(raw_image_path, output_image_path)
+
+        # Add to image dictionary
+        if 'short' in raw_image_file:
+            image_dict['pred_image'].append(output_image_path.split('/')[-1])
+        else:
+            image_dict['target_image'].append(output_image_path.split('/')[-1])
+
+    # Write image pairs to CSV
+    with open(os.path.join(output_image_dir, 'file_list.csv'), 'w', newline='') as csvfile:
+        csvwriter = csv.writer(csvfile)
+        csvwriter.writerow(['pred_image', 'target_image'])
+        for pred, target in zip(image_dict['pred_image'], image_dict['target_image']):
+            csvwriter.writerow([pred, target])
 
 if __name__ == "__main__":
     args = parser_args()
