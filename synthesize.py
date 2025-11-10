@@ -4,6 +4,15 @@ import tifffile
 import subprocess
 import os
 import imageio
+from utils.motion_blur import Kernel
+
+def apply_motion_blur(image, kernel_size=(100, 100), intensity=0.5):
+    """
+    Apply motion blur to an image using a specified kernel size and intensity.
+    """
+    kernel = Kernel(kernel_size=kernel_size, intensity=intensity)
+    blurred_image = kernel.applyTo(image)
+    return blurred_image
     
 
 def save_modified_raw_with_exif(input_arw, output_tiff):
@@ -29,7 +38,8 @@ def save_modified_raw_with_exif(input_arw, output_tiff):
         # Modify (currently just copying - you can add your processing)
         modified_bayer = original_bayer.copy()
         modified_bayer = modified_bayer.astype(np.float32)
-        modified_bayer *= 1.2  # Example modification: increase brightness
+        modified_bayer *= 1.0  # Example modification: increase brightness
+        # Demosaic, add blur, and then back to Bayer
         modified_bayer = np.clip(modified_bayer, 0, white_level).astype(np.uint16)
     
     # 2. Save modified Bayer as TIFF first
