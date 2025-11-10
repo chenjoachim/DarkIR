@@ -7,6 +7,7 @@ output.txt
 *.pth
 *.pt
 *.npy
+*.ARW
 scheduler_test.py
 /archs/nafnet_utils/arch_model_dilated.py
 /utils/erfs
