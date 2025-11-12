@@ -4,14 +4,19 @@ import tifffile
 import subprocess
 import os
 import imageio
+from skimage.filters import gaussian
 from utils.motion_blur import Kernel
+from utils.demosaic import demosaic
 
-def apply_motion_blur(image, kernel_size=(100, 100), intensity=0.5):
+def apply_motion_blur(image, kernel_size=(70, 70), intensity=0.5):
     """
     Apply motion blur to an image using a specified kernel size and intensity.
     """
-    kernel = Kernel(kernel_size=kernel_size, intensity=intensity)
-    blurred_image = kernel.applyTo(image)
+    kernel = Kernel(size=kernel_size, intensity=intensity)
+    lpf = gaussian(image, sigma=3)
+    low_freq_component = lpf
+    high_freq_component = image - lpf
+    blurred_image = kernel.applyTo(low_freq_component, keep_image_dim=True) + high_freq_component
     return blurred_image
     
 
@@ -38,25 +43,30 @@ def save_modified_raw_with_exif(input_arw, output_tiff):
         # Modify (currently just copying - you can add your processing)
         modified_bayer = original_bayer.copy()
         modified_bayer = modified_bayer.astype(np.float32)
-        modified_bayer *= 1.0  # Example modification: increase brightness
-        # Demosaic, add blur, and then back to Bayer
+        
+        # Demosaic, add blur
+        demosaiced = demosaic(modified_bayer)
+        demosaiced = apply_motion_blur(demosaiced)
+        
+        # Convert back to Bayer
+        modified_bayer[0::2, 0::2] = demosaiced[0::2, 0::2, 0]  # R
+        modified_bayer[0::2, 1::2] = demosaiced[0::2, 1::2, 1]  # G
+        modified_bayer[1::2, 0::2] = demosaiced[1::2, 0::2, 1]  # G
+        modified_bayer[1::2, 1::2] = demosaiced[1::2, 1::2, 2]  # B
+        
         modified_bayer = np.clip(modified_bayer, 0, white_level).astype(np.uint16)
     
     # 2. Save modified Bayer as TIFF first
     print("Saving modified data...")
-    cfa_pattern_flat = cfa_pattern.flatten().astype(np.uint8)
-    cfa_repeat = np.array([2, 2], dtype=np.uint16)
+    # cfa_pattern_flat = cfa_pattern.flatten().astype(np.uint8)
+    # cfa_repeat = np.array([2, 2], dtype=np.uint16)
     
     tifffile.imwrite(
         output_tiff,
         modified_bayer,
         photometric='CFA',
         compression='none',
-        planarconfig='contig',
-        extratags=[
-            (33422, 'B', 4, cfa_pattern_flat, True),
-            (33421, 'H', 2, cfa_repeat, True),
-        ]
+        planarconfig='contig'
     )
     
     # 3. Copy metadata EXCLUDING structural tags
@@ -65,21 +75,6 @@ def save_modified_raw_with_exif(input_arw, output_tiff):
         'exiftool',
         '-TagsFromFile', input_arw,
         '-all:all',
-        # EXCLUDE structural tags that break the file
-        '--ImageWidth',
-        '--ImageHeight', 
-        '--ImageLength',
-        '--StripOffsets',
-        '--StripByteCounts',
-        '--TileOffsets',
-        '--TileByteCounts',
-        '--Compression',
-        '--PhotometricInterpretation',
-        '--Orientation',
-        '--SamplesPerPixel',
-        '--PlanarConfiguration',
-        '--BitsPerSample',
-        '--SubIFD',
         '-overwrite_original',
         output_tiff
     ], capture_output=True, text=True)
@@ -113,6 +108,6 @@ def save_modified_raw_with_exif(input_arw, output_tiff):
 
 # Usage
 bayer, rgb = save_modified_raw_with_exif(
-    'images/Sony/short/20211_00_0.033s.ARW',
+    'images/Sony/short/20211_09_0.04s.ARW',
     'modified_raw.tiff'
 )

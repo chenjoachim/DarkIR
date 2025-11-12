@@ -402,9 +402,33 @@ class Kernel(object):
             ###
 
             # initiate Image object from array
-            image = Image.fromarray(image)
+            # image = Image.fromarray(image)
+            
+            # Directly apply kernel to each channel
+            # Use reflect-padding when keep_image_dim is True to avoid
+            # introducing black/zero edges from convolution.
+            result_channels = []
+            for c in range(image.shape[2]):
+                channel = image[:, :, c]
+                if keep_image_dim:
+                    # pad so that after 'valid' convolution the output
+                    # has the same shape as the original channel.
+                    # For kernel size k, we need pad_before + pad_after = k - 1.
+                    ky, kx = self.kernelMatrix.shape
+                    pad_y_before = ky // 2
+                    pad_y_after = (ky - 1) - pad_y_before
+                    pad_x_before = kx // 2
+                    pad_x_after = (kx - 1) - pad_x_before
+                    padded = np.pad(channel, ((pad_y_before, pad_y_after), (pad_x_before, pad_x_after)), mode='reflect')
+                    # use 'valid' on padded image to preserve original dim
+                    result_channel = convolve(padded, self.kernelMatrix, mode='valid')
+                else:
+                    # same behavior as before for non-keep_image_dim
+                    result_channel = convolve(channel, self.kernelMatrix, mode='valid')
+                result_channels.append(result_channel)
+            result = np.dstack(result_channels)
 
-            return applyToPIL(image, keep_image_dim)
+            return result
 
         else:
 
