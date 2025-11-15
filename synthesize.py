@@ -1,53 +1,48 @@
+import imageio
 import rawpy
 import numpy as np
 import tifffile
 import subprocess
 import os
-import imageio
+from tqdm import tqdm
 from skimage.filters import gaussian
 from utils.motion_blur import Kernel
 from utils.demosaic import demosaic
+import random
 
 def apply_motion_blur(image, kernel_size=(70, 70), intensity=0.5):
     """
     Apply motion blur to an image using a specified kernel size and intensity.
     """
     kernel = Kernel(size=kernel_size, intensity=intensity)
-    lpf = gaussian(image, sigma=3)
+    lpf = gaussian(image, sigma=2)
     low_freq_component = lpf
     high_freq_component = image - lpf
     blurred_image = kernel.applyTo(low_freq_component, keep_image_dim=True) + high_freq_component
     return blurred_image
     
 
-def save_modified_raw_with_exif(input_arw, output_tiff):
+def save_modified_raw_with_exif(input_arw, output_tiff, kernel_size=(70, 70), intensity=0.5):
     """
     Save modified Bayer with metadata preserved (excluding structural tags)
     """
     
     # 1. Read and modify Bayer
-    print("Reading and modifying RAW...")
     with rawpy.imread(input_arw) as raw:
         original_bayer = raw.raw_image.copy()
-        black_level = raw.black_level_per_channel[0]
         white_level = raw.white_level
-        cfa_pattern = raw.raw_pattern
-        # Save an image for testing
-        rgb = raw.postprocess()
-        imageio.imsave('original_test.png', rgb)
-        print("✓ Saved: original_test.png")
-        print(f"✓ Read original Bayer: {original_bayer.shape}")
         
-        print(f"Original range: [{original_bayer.min()}, {original_bayer.max()}]")
-        
-        # Modify (currently just copying - you can add your processing)
+        # Modify and apply motion blur
         modified_bayer = original_bayer.copy()
         modified_bayer = modified_bayer.astype(np.float32)
         
         # Demosaic, add blur
         demosaiced = demosaic(modified_bayer)
-        demosaiced = apply_motion_blur(demosaiced)
-        
+        # Kernel size: random between 0.5-1.0 size of max
+        kernel_size = (random.randint(int(0.5*kernel_size[0]), kernel_size[0]),
+                       random.randint(int(0.5*kernel_size[1]), kernel_size[1]))
+        demosaiced = apply_motion_blur(demosaiced, kernel_size=kernel_size, intensity=intensity)
+
         # Convert back to Bayer
         modified_bayer[0::2, 0::2] = demosaiced[0::2, 0::2, 0]  # R
         modified_bayer[0::2, 1::2] = demosaiced[0::2, 1::2, 1]  # G
@@ -56,11 +51,7 @@ def save_modified_raw_with_exif(input_arw, output_tiff):
         
         modified_bayer = np.clip(modified_bayer, 0, white_level).astype(np.uint16)
     
-    # 2. Save modified Bayer as TIFF first
-    print("Saving modified data...")
-    # cfa_pattern_flat = cfa_pattern.flatten().astype(np.uint8)
-    # cfa_repeat = np.array([2, 2], dtype=np.uint16)
-    
+    # 2. Save modified Bayer as TIFF
     tifffile.imwrite(
         output_tiff,
         modified_bayer,
@@ -70,7 +61,6 @@ def save_modified_raw_with_exif(input_arw, output_tiff):
     )
     
     # 3. Copy metadata EXCLUDING structural tags
-    print("Copying metadata (excluding structural tags)...")
     result = subprocess.run([
         'exiftool',
         '-TagsFromFile', input_arw,
@@ -81,33 +71,34 @@ def save_modified_raw_with_exif(input_arw, output_tiff):
     
     if result.returncode != 0:
         print(f"Warning: {result.stderr}")
-    else:
-        print(f"✓ Metadata copied")
     
     # 4. Verify
-    print("\nVerifying...")
     try:
         with rawpy.imread(output_tiff) as raw:
-            verify = raw.raw_image
-            print(f"✓ Can read Bayer: {verify.shape}")
-            print(f"  Range: [{verify.min()}, {verify.max()}]")
-            
-            # Test postprocess
-            rgb = raw.postprocess()
-            print(f"✓ Can postprocess: {rgb.shape}")
-            print(f"  RGB range: [{rgb.min()}, {rgb.max()}]")
-            
-            # Save RGB
-            imageio.imsave('test_output.png', rgb)
-            print("✓ Saved: test_output.png")
-            
-            return verify, rgb
+            return raw.raw_image
     except Exception as e:
-        print(f"✗ Error: {e}")
-        return None, None
+        print(f"Error reading output: {e}")
+        return None
 
-# Usage
-bayer, rgb = save_modified_raw_with_exif(
-    'images/Sony/short/20211_09_0.04s.ARW',
-    'modified_raw.tiff'
-)
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="Synthesize modified RAW with motion blur and preserve EXIF metadata.")
+    parser.add_argument('--input_dir', type=str, required=True, help='Directory containing input .ARW files')
+    parser.add_argument('--output_dir', type=str, required=True, help='Directory to save output TIFF files')
+    parser.add_argument('--kernel_size', type=int, nargs=2, default=(80, 80), help='Maximum kernel size for motion blur')
+    parser.add_argument('--intensity', type=float, default=0.5, help='Intensity of motion blur')
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    
+    input_dir = args.input_dir
+    output_dir = args.output_dir
+    os.makedirs(output_dir, exist_ok=True)
+    files = [f for f in os.listdir(input_dir) if f.lower().endswith('.arw')]
+    for filename in tqdm(files, desc="Processing files"):
+        input_path = os.path.join(input_dir, filename)
+        output_path = os.path.join(output_dir, filename.replace('.ARW', '.tiff'))
+        save_modified_raw_with_exif(input_path, output_path, kernel_size=args.kernel_size, intensity=args.intensity)
+
