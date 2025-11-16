@@ -2,8 +2,8 @@ import rawpy
 import imageio
 import argparse
 import os
+import glob
 from tqdm import tqdm
-import csv
 
 def raw_to_srgb(raw_image_path, output_image_path):
     """
@@ -22,46 +22,44 @@ def raw_to_srgb(raw_image_path, output_image_path):
     imageio.imsave(output_image_path, rgb_image)
 
 def parser_args():
-    parser = argparse.ArgumentParser(description="Convert RAW image to sRGB format")
-    parser.add_argument('-r', '--raw_image_dir', type=str, required=True, help='Path to the input RAW image directory')
-    parser.add_argument('-o', '--output_image_dir', type=str, required=True, help='Path to save the output sRGB image directory')
-    parser.add_argument('--list_file', type=str, required=True, help='Path to the text file containing list of RAW image filenames')
+    parser = argparse.ArgumentParser(description="Convert RAW/TIFF images to sRGB format")
+    parser.add_argument('-i', '--input_dir', type=str, required=True, help='Path to the input directory containing RAW/TIFF images')
+    parser.add_argument('-o', '--output_dir', type=str, required=True, help='Path to save the output sRGB images')
     return parser.parse_args()
 
 def main(args):
-    raw_image_dir = args.raw_image_dir
-    output_image_dir = args.output_image_dir
-    list_file = args.list_file
+    input_dir = args.input_dir
+    output_dir = args.output_dir
 
-    os.makedirs(os.path.join(output_image_dir, "short"), exist_ok=True)
-    os.makedirs(os.path.join(output_image_dir, "long"), exist_ok=True)
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
 
-    raw_image_files = []
-    with open(list_file, 'r') as f:
-        for line in f:
-            raw_image_files += line.strip().split()[:2]
+    # Find all .ARW and .TIFF files in the input directory
+    arw_files = glob.glob(os.path.join(input_dir, "*.ARW")) + glob.glob(os.path.join(input_dir, "*.arw"))
+    tiff_files = glob.glob(os.path.join(input_dir, "*.TIFF")) + glob.glob(os.path.join(input_dir, "*.tiff"))
+    raw_files = arw_files + tiff_files
 
-    image_dict = {}
-    image_dict['pred_image'] = []
-    image_dict['target_image'] = []
+    if not raw_files:
+        print(f"No .ARW or .TIFF files found in {input_dir}")
+        return
 
-    for raw_image_file in tqdm(raw_image_files):
-        raw_image_path = os.path.join(raw_image_dir, raw_image_file)
-        output_image_path = os.path.join(output_image_dir, raw_image_path.split('Sony/')[-1].replace('.ARW', '.png'))
-        raw_to_srgb(raw_image_path, output_image_path)
+    print(f"Found {len(raw_files)} files to process")
 
-        # Add to image dictionary
-        if 'short' in raw_image_file:
-            image_dict['pred_image'].append(output_image_path.split('/')[-1])
-        else:
-            image_dict['target_image'].append(output_image_path.split('/')[-1])
+    # Process each file
+    for raw_file_path in tqdm(raw_files, desc="Converting images"):
+        # Get the filename without extension
+        filename = os.path.splitext(os.path.basename(raw_file_path))[0]
+        
+        # Create output path with .png extension
+        output_path = os.path.join(output_dir, f"{filename}.png")
+        
+        try:
+            raw_to_srgb(raw_file_path, output_path)
+            # print(f"Successfully converted: {os.path.basename(raw_file_path)} -> {os.path.basename(output_path)}")
+        except Exception as e:
+            print(f"Error processing {os.path.basename(raw_file_path)}: {str(e)}")
 
-    # Write image pairs to CSV
-    with open(os.path.join(output_image_dir, 'file_list.csv'), 'w', newline='') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        csvwriter.writerow(['pred_image', 'target_image'])
-        for pred, target in zip(image_dict['pred_image'], image_dict['target_image']):
-            csvwriter.writerow([pred, target])
+    print(f"Conversion complete! Output files saved to: {output_dir}")
 
 if __name__ == "__main__":
     args = parser_args()
