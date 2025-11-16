@@ -1,6 +1,6 @@
+#### network structures
 network:
   name: DarkIR
-  resume_training: True
   img_channels: 3
   width: 32
   middle_blk_num_enc: 2
@@ -10,7 +10,8 @@ network:
   dilations: [1, 4, 9]
   extra_depth_wise: True
 
+#### save model
 save:
-  path: ./models/DarkIR_384.pt
+  path: ./models/DarkIR_1k_cr_mt.pt
 
 Resize: True
