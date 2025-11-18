@@ -15,7 +15,7 @@ def apply_motion_blur(image, kernel_size=(70, 70), intensity=0.5):
     Apply motion blur to an image using a specified kernel size and intensity.
     """
     kernel = Kernel(size=kernel_size, intensity=intensity)
-    lpf = gaussian(image, sigma=2)
+    lpf = gaussian(image, sigma=1)
     low_freq_component = lpf
     high_freq_component = image - lpf
     blurred_image = kernel.applyTo(low_freq_component, keep_image_dim=True) + high_freq_component
@@ -38,9 +38,6 @@ def save_modified_raw_with_exif(input_arw, output_tiff, kernel_size=(70, 70), in
         
         # Demosaic, add blur
         demosaiced = demosaic(modified_bayer)
-        # Kernel size: random between 0.5-1.0 size of max
-        kernel_size = (random.randint(int(0.5*kernel_size[0]), kernel_size[0]),
-                       random.randint(int(0.5*kernel_size[1]), kernel_size[1]))
         demosaiced = apply_motion_blur(demosaiced, kernel_size=kernel_size, intensity=intensity)
 
         # Convert back to Bayer
@@ -85,7 +82,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Synthesize modified RAW with motion blur and preserve EXIF metadata.")
     parser.add_argument('--input_dir', type=str, required=True, help='Directory containing input .ARW files')
     parser.add_argument('--output_dir', type=str, required=True, help='Directory to save output TIFF files')
-    parser.add_argument('--kernel_size', type=int, nargs=2, default=(80, 80), help='Maximum kernel size for motion blur')
+    parser.add_argument('--kernel_size', type=int, nargs=2, default=(120, 120), help='Maximum kernel size for motion blur')
     parser.add_argument('--intensity', type=float, default=0.5, help='Intensity of motion blur')
     return parser.parse_args()
 
