@@ -15,7 +15,7 @@ def apply_motion_blur(image, kernel_size=(70, 70), intensity=0.5):
     Apply motion blur to an image using a specified kernel size and intensity.
     """
     kernel = Kernel(size=kernel_size, intensity=intensity)
-    lpf = gaussian(image, sigma=1)
+    lpf = gaussian(image, sigma=1.5)
     low_freq_component = lpf
     high_freq_component = image - lpf
     blurred_image = kernel.applyTo(low_freq_component, keep_image_dim=True) + high_freq_component
