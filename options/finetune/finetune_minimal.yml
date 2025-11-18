@@ -1,0 +1,63 @@
+# Minimal finetuning configuration for quick testing
+# Use this for rapid experimentation with small datasets
+
+#### GPU configuration
+gpu: "0"
+
+#### datasets
+datasets:
+  name: Custom
+  train:
+    train_path: ./data/datasets/custom/train
+    batch_size: 2  # Small batch for testing
+    cropsize: 128  # Small crop for speed
+    n_workers: 2
+    verbose: True
+  val:
+    test_path: ./data/datasets/custom/test
+    batch_size_test: 1
+
+#### network structures
+network:
+  name: DarkIR
+  pretrained_path: ./models/DarkIR_384.pt
+  resume_training: False
+  img_channels: 3
+  width: 32
+  middle_blk_num_enc: 2
+  middle_blk_num_dec: 2
+  enc_blk_nums: [1, 2, 3]
+  dec_blk_nums: [3, 1, 1]
+  dilations: [1, 4, 9]
+  extra_depth_wise: True
+
+#### training settings
+train:
+  epochs: 10  # Just 10 epochs for testing
+  lr_initial: 0.0001
+  lr_scheme: CosineAnnealing
+  eta_min: 0.000001
+  weight_decay: 0.0001
+  betas: [0.9, 0.999]
+  use_side_loss: False  # Disable for simplicity
+
+#### loss functions (minimal)
+losses:
+  main_loss:
+    type: CharbonnierLoss
+    weight: 1.0
+
+#### model saving
+save:
+  path: ./models/test_finetune
+
+#### wandb logging
+wandb:
+  init: False
+  project: DarkIR-Test
+  entity: your_entity_name
+  name: test_run
+  save_code: False
+  resume: False
+  id: null
+  dir: ./wandb_logs

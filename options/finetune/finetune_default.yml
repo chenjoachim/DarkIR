@@ -1,0 +1,87 @@
+# Finetuning configuration for DarkIR
+# Modify paths and hyperparameters according to your dataset
+
+#### GPU configuration
+gpu: "0"  # GPU device to use
+
+#### datasets
+datasets:
+  name: Custom  # Name of your dataset
+  train:
+    train_path: ./data/datasets/custom/train  # Path to training data (should have 'low' and 'high' subdirectories)
+    batch_size: 8
+    cropsize: 256  # Random crop size for training
+    n_workers: 4  # Number of data loading workers per GPU
+    verbose: True
+  val:
+    test_path: ./data/datasets/custom/test  # Path to validation data
+    batch_size_test: 1
+
+#### network structures
+network:
+  name: DarkIR
+  pretrained_path: ./models/DarkIR_384.pt  # Path to pretrained model weights
+  resume_training: False
+  img_channels: 3
+  width: 32
+  middle_blk_num_enc: 2
+  middle_blk_num_dec: 2
+  enc_blk_nums: [1, 2, 3]
+  dec_blk_nums: [3, 1, 1]
+  dilations: [1, 4, 9]
+  extra_depth_wise: True
+
+#### training settings
+train:
+  epochs: 100
+  lr_initial: 0.0001  # Initial learning rate
+  lr_scheme: CosineAnnealing
+  eta_min: 0.000001  # Minimum learning rate
+  weight_decay: 0.0001
+  betas: [0.9, 0.999]
+  use_side_loss: True  # Whether to use the middle enhancement loss
+
+#### loss functions
+losses:
+  main_loss:
+    type: CharbonnierLoss  # L1Loss, MSELoss, CharbonnierLoss
+    weight: 1.0
+  
+  ssim_loss:
+    type: SSIMloss
+    weight: 0.1
+  
+  # Optional: Uncomment to use perceptual loss
+  # perceptual_loss:
+  #   type: VGGLoss
+  #   weight: 0.01
+  
+  # Optional: Uncomment to use frequency loss
+  # frequency_loss:
+  #   type: FrequencyLoss
+  #   weight: 0.01
+  
+  # Optional: Uncomment to use edge loss
+  # edge_loss:
+  #   type: EdgeLoss
+  #   weight: 0.1
+  
+  # Optional: Enhancement loss for middle output (requires use_side_loss: True)
+  enhance_loss:
+    type: EnhanceLoss
+    weight: 0.5
+
+#### model saving
+save:
+  path: ./models/finetuned  # Directory to save finetuned models
+
+#### wandb logging (optional)
+wandb:
+  init: False  # Set to True to enable Weights & Biases logging
+  project: DarkIR-Finetune
+  entity: your_entity_name
+  name: finetune_experiment_1
+  save_code: True
+  resume: False
+  id: null
+  dir: ./wandb_logs

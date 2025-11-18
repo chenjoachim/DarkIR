@@ -170,6 +170,27 @@ This work has been accepted for publication and presentation at The IEEE/CVF Con
 }
 ```
 
+## Finetuning
+
+Want to finetune DarkIR on your own dataset? We provide a complete finetuning pipeline with:
+
+- ✅ Multi-GPU distributed training support
+- ✅ Many-to-one image mapping (multiple low images → one high image)
+- ✅ Multiple loss functions (Charbonnier, SSIM, VGG perceptual, etc.)
+- ✅ Automatic checkpoint management
+- ✅ Interactive setup scripts
+
+**Get Started**:
+```bash
+# Quick start with interactive script
+./quick_start_finetune.sh
+
+# Or directly
+python finetune.py -p options/finetune/finetune_default.yml
+```
+
+**Complete Documentation**: See [FINETUNE_GUIDE.md](FINETUNE_GUIDE.md) for detailed instructions.
+
 ## Contact
 
 If you have any questions, please contact danfei@cidaut.es and marcos.conde@uni-wuerzburg.de
