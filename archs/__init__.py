@@ -5,7 +5,7 @@ from ptflops import get_model_complexity_info
 
 from .DarkIR import DarkIR   
 
-def create_model(opt, rank, adapter = False):
+def create_model(opt, rank, adapter = False, allow_unused_params = False):
     '''
     Creates the model.
     opt: a dictionary from the yaml config key network
@@ -34,7 +34,7 @@ def create_model(opt, rank, adapter = False):
 
     model.to(rank)
     
-    model = DDP(model, device_ids=[rank], find_unused_parameters=adapter)
+    model = DDP(model, device_ids=[rank], find_unused_parameters=adapter or allow_unused_params)
     
     return model, macs, params
 
@@ -79,7 +79,7 @@ def resume_model(model,
                  optim,
                  scheduler, 
                  path_model, 
-                 rank,resume:str=None):
+                 rank, resume: str = None, scaler = None):
     '''
     Returns the loaded weights of model and optimizer if resume flag is True
     '''
@@ -90,6 +90,12 @@ def resume_model(model,
         model = load_weights(model, old_weights=weights)
         optim = load_optim(optim, optim_weights = checkpoints['optimizer_state_dict'])
         scheduler.load_state_dict(checkpoints['scheduler_state_dict'])
+        
+        # Load scaler state if present and scaler is provided
+        if scaler is not None and 'scaler_state_dict' in checkpoints:
+            scaler.load_state_dict(checkpoints['scaler_state_dict'])
+            if rank == 0: print('Loaded scaler state')
+        
         start_epochs = checkpoints['epoch']
 
         if rank == 0: print('Loaded weights')
@@ -190,7 +196,7 @@ def number_common_keys(dict1, dict2):
     
 #     return model, optim, scheduler, start_epochs
 
-def save_checkpoint(model, optim, scheduler, metrics_eval, metrics_train, paths, adapter = False, rank = None):
+def save_checkpoint(model, optim, scheduler, metrics_eval, metrics_train, paths, adapter = False, rank = None, scaler = None):
 
     '''
     Save the .pt of the model after each epoch.
@@ -212,6 +218,10 @@ def save_checkpoint(model, optim, scheduler, metrics_eval, metrics_train, paths,
         'loss': metrics_train['train_loss'],
         'scheduler_state_dict': scheduler.state_dict()
     }
+    
+    # Save scaler state if using FP16
+    if scaler is not None:
+        model_to_save['scaler_state_dict'] = scaler.state_dict()
 
     try:
         torch.save(model_to_save, paths['new'])

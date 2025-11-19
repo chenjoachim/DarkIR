@@ -1,6 +1,7 @@
 import numpy as np
 import os, sys
 from tqdm import tqdm
+from losses.loss import CharbonnierLoss, EdgeLoss, EnhanceLoss, FrequencyLoss, L1Loss, MSELoss, SSIMloss
 from options.options import parse
 import argparse
 
@@ -20,6 +21,10 @@ import torch.optim
 import torch.multiprocessing as mp
 import torch.distributed as dist
 
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+import torchvision.transforms as transforms 
+
 from data.dataset_reader.datapipeline import *
 from archs import *
 from losses import *
@@ -27,6 +32,9 @@ from data import *
 from utils.utils import create_path_models, init_wandb, logging_dict
 from utils.test_utils import *
 from ptflops import get_model_complexity_info
+
+import dotenv
+dotenv.load_dotenv()
 
 # Parameters for saving model
 PATH_MODEL = create_path_models(opt['save'])
@@ -178,9 +186,9 @@ def create_losses(opt, rank):
         elif loss_type == 'MSELoss':
             losses_dict[loss_name] = MSELoss(loss_weight=loss_weight)
         elif loss_type == 'CharbonnierLoss':
-            losses_dict[loss_name] = CharbonnierLoss(loss_weight=loss_weight)
+            losses_dict[loss_name] = CharbonnierLoss(loss_weight=loss_weight, eps=1e-6)  # Slightly larger eps for stability
         elif loss_type == 'SSIMloss':
-            losses_dict[loss_name] = SSIMloss(loss_weight=loss_weight)
+            losses_dict[loss_name] = SSIMloss(loss_weight=loss_weight, data_range=1.0)
         elif loss_type == 'VGGLoss':
             losses_dict[loss_name] = VGGLoss(loss_weight=loss_weight)
         elif loss_type == 'FrequencyLoss':
@@ -195,13 +203,14 @@ def create_losses(opt, rank):
     return losses_dict
 
 
-def train_one_epoch(model, train_loader, optimizer, losses_dict, rank, world_size, use_side_loss=False):
+def train_one_epoch(model, train_loader, optimizer, losses_dict, rank, world_size, use_side_loss=False, scaler=None):
     """
     Train for one epoch
     """
     model.train()
     epoch_loss = 0.0
     num_batches = len(train_loader)
+    use_amp = scaler is not None
     
     if rank == 0:
         pbar = tqdm(total=num_batches, desc='Training')
@@ -210,27 +219,102 @@ def train_one_epoch(model, train_loader, optimizer, losses_dict, rank, world_siz
         high_batch = high_batch.to(rank)
         low_batch = low_batch.to(rank)
         
+        # Validate input data for NaN/Inf values
+        if torch.isnan(low_batch).any() or torch.isinf(low_batch).any():
+            if rank == 0:
+                print(f"WARNING: NaN or Inf detected in low_batch at batch {i}")
+            continue
+        
+        if torch.isnan(high_batch).any() or torch.isinf(high_batch).any():
+            if rank == 0:
+                print(f"WARNING: NaN or Inf detected in high_batch at batch {i}")
+            continue
+        
+        # Clamp input values to valid range [0, 1]
+        low_batch = torch.clamp(low_batch, 0.0, 1.0)
+        high_batch = torch.clamp(high_batch, 0.0, 1.0)
+        
         optimizer.zero_grad()
         
-        # Forward pass
-        if use_side_loss:
-            out_side, output = model(low_batch, side_loss=True)
+        # Forward pass with mixed precision
+        if use_amp:
+            with torch.amp.autocast("cuda"):
+                # Forward pass
+                if use_side_loss:
+                    out_side, output = model(low_batch, side_loss=True)
+                else:
+                    output = model(low_batch)
+                
+                # Calculate losses
+                total_loss = 0
+                for loss_name, loss_fn in losses_dict.items():
+                    if 'enhance' in loss_name.lower() and use_side_loss:
+                        # EnhanceLoss uses the side output
+                        loss = loss_fn(high_batch, out_side)
+                    else:
+                        loss = loss_fn(output, high_batch)
+                    
+                    # Validate individual loss
+                    if torch.isnan(loss) or torch.isinf(loss):
+                        if rank == 0:
+                            print(f"WARNING: NaN or Inf detected in {loss_name} at batch {i}")
+                        continue
+                    
+                    total_loss += loss
+                
+                # Final validation of total loss
+                if torch.isnan(total_loss) or torch.isinf(total_loss):
+                    if rank == 0:
+                        print(f"WARNING: NaN or Inf in total_loss at batch {i}, skipping")
+                    continue
+            
+            # Backward pass with gradient scaling
+            scaler.scale(total_loss).backward()
+            
+            # Gradient clipping before optimizer step
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            scaler.step(optimizer)
+            scaler.update()
         else:
-            output = model(low_batch)
-        
-        # Calculate losses
-        total_loss = 0
-        for loss_name, loss_fn in losses_dict.items():
-            if 'enhance' in loss_name.lower() and use_side_loss:
-                # EnhanceLoss uses the side output
-                loss = loss_fn(high_batch, out_side)
+            # Standard precision training
+            # Forward pass
+            if use_side_loss:
+                out_side, output = model(low_batch, side_loss=True)
             else:
-                loss = loss_fn(output, high_batch)
-            total_loss += loss
-        
-        # Backward pass
-        total_loss.backward()
-        optimizer.step()
+                output = model(low_batch)
+            
+            # Calculate losses
+            total_loss = 0
+            for loss_name, loss_fn in losses_dict.items():
+                if 'enhance' in loss_name.lower() and use_side_loss:
+                    # EnhanceLoss uses the side output
+                    loss = loss_fn(high_batch, out_side)
+                else:
+                    loss = loss_fn(output, high_batch)
+                
+                # Validate individual loss
+                if torch.isnan(loss) or torch.isinf(loss):
+                    if rank == 0:
+                        print(f"WARNING: NaN or Inf detected in {loss_name} at batch {i}")
+                    continue
+                
+                total_loss += loss
+            
+            # Final validation of total loss
+            if torch.isnan(total_loss) or torch.isinf(total_loss):
+                if rank == 0:
+                    print(f"WARNING: NaN or Inf in total_loss at batch {i}, skipping")
+                continue
+            
+            # Backward pass
+            total_loss.backward()
+            
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            optimizer.step()
         
         # Record loss
         epoch_loss += total_loss.item()
@@ -262,26 +346,36 @@ def run_finetuning(rank, world_size):
     train_loader, train_sampler = create_train_data(rank, world_size=world_size, opt=opt['datasets'])
     test_loader, test_sampler = create_test_data(rank, world_size=world_size, opt=opt['datasets'])
     
+    # Check if side loss is used to determine DDP settings
+    use_side_loss = opt['train'].get('use_side_loss', False)
+    
     # Define network
-    model, macs, params = create_model(opt['network'], rank=rank)
+    model, macs, params = create_model(opt['network'], rank=rank, allow_unused_params=not use_side_loss)
     
     # Load pretrained weights
     if opt['network'].get('pretrained_path'):
         model = load_pretrained_model(model.module, opt['network']['pretrained_path'], rank)
-        # Re-wrap with DDP
+        # Re-wrap with DDP using the same settings
         model = torch.nn.parallel.DistributedDataParallel(
             model.to(rank), 
             device_ids=[rank], 
-            find_unused_parameters=False
+            find_unused_parameters=not use_side_loss  # Allow unused params when side_loss is disabled
         )
     
     # Define optimizer and scheduler
     optimizer, scheduler = create_optim_scheduler(opt['train'], model)
     
+    # Initialize FP16 scaler if enabled
+    use_fp16 = opt['train'].get('use_fp16', False)
+    scaler = torch.amp.GradScaler("cuda") if use_fp16 else None
+    
+    if rank == 0 and use_fp16:
+        print('Using mixed precision training (FP16)')
+    
     # Resume from checkpoint if specified
     if args.resume:
         model, optimizer, scheduler, start_epoch = resume_model(
-            model, optimizer, scheduler, args.resume, rank, resume=True
+            model, optimizer, scheduler, args.resume, rank, resume=True, scaler=scaler
         )
     else:
         start_epoch = 0
@@ -306,7 +400,27 @@ def run_finetuning(rank, world_size):
         print(f'Total epochs: {opt["train"]["epochs"]}')
         print(f'Use side loss: {use_side_loss}')
         print(f'{"="*50}\n')
-    
+    # Validate once before training
+    model.eval()
+    metrics_eval, imgs_dict = eval_model(
+        model, test_loader, metrics_eval, 
+        rank=rank, world_size=world_size, eta=(rank==0)
+    )
+    dist.barrier()
+    if rank == 0:
+        print(f'\n{"="*50}')
+        print('Validation before training:')
+        if type(next(iter(metrics_eval.values()))) == dict:
+            for key, metric_eval in metrics_eval.items():
+                print(f'  {key} --- PSNR: {metric_eval["valid_psnr"]:.2f}, '
+                      f'SSIM: {metric_eval["valid_ssim"]:.4f}, '
+                      f'LPIPS: {metric_eval["valid_lpips"]:.4f}')
+        else:
+            print(f'  Validation --- PSNR: {metrics_eval["valid_psnr"]:.2f}, '
+                  f'SSIM: {metrics_eval["valid_ssim"]:.4f}, '
+                  f'LPIPS: {metrics_eval["valid_lpips"]:.4f}')
+        print(f'{"="*50}\n')
+    model.train()
     # Training loop
     for epoch in range(start_epoch, opt['train']['epochs']):
         if rank == 0:
@@ -321,7 +435,7 @@ def run_finetuning(rank, world_size):
         # Train one epoch
         train_loss = train_one_epoch(
             model, train_loader, optimizer, losses_dict, 
-            rank, world_size, use_side_loss
+            rank, world_size, use_side_loss, scaler
         )
         
         if rank == 0:
@@ -372,7 +486,7 @@ def run_finetuning(rank, world_size):
             best_psnr = save_checkpoint(
                 model, optimizer, scheduler, 
                 metrics_eval, metrics_train, paths, 
-                adapter=False, rank=rank
+                adapter=False, rank=rank, scaler=scaler
             )
             
             print(f'Model saved to {paths["new"]}')

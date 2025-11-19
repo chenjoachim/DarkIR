@@ -1,6 +1,7 @@
 output.txt
 **/__pycache__/
 /wandb
+.env
 *.png
 *.PNG
 *.jpg

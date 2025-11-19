@@ -7,6 +7,7 @@ sys.path.append('../losses')
 sys.path.append('../data/datasets/datapipeline')
 from losses import *
 from tqdm import tqdm
+import torch.nn.functional as F
 
 calc_SSIM = SSIM(data_range=1.)
 
@@ -49,15 +50,25 @@ def eval_one_loader(model, test_loader, metrics, rank=0, world_size = 1, eta = F
 
             high_batch_valid = high_batch_valid.to(rank)
             low_batch_valid = low_batch_valid.to(rank)         
-
+            
+            # If too large, downsample 4x
+            downsampled = False
+            if max(high_batch_valid.shape[-2:]) > 1500:
+                downsampled = True
+                high_batch_valid = F.interpolate(high_batch_valid, scale_factor=0.25, mode='bilinear', align_corners=False)
+                low_batch_valid = F.interpolate(low_batch_valid, scale_factor=0.25, mode='bilinear', align_corners=False)
             enhanced_batch_valid = model(low_batch_valid)
             # loss
             valid_loss_batch = torch.mean((high_batch_valid - enhanced_batch_valid)**2)
             valid_ssim_batch = calc_SSIM(enhanced_batch_valid, high_batch_valid)
-            valid_lpips_batch = calc_LPIPS(enhanced_batch_valid, high_batch_valid)
-                
+            valid_lpips_batch = calc_LPIPS(enhanced_batch_valid, high_batch_valid)    
             valid_psnr_batch = 20 * torch.log10(1. / torch.sqrt(valid_loss_batch))        
-    
+
+            # Upsample back if downsampled
+            if downsampled:
+                low_batch_valid = F.interpolate(low_batch_valid, scale_factor=4.0, mode='bilinear', align_corners=False)
+                high_batch_valid = F.interpolate(high_batch_valid, scale_factor=4.0, mode='bilinear', align_corners=False)
+                enhanced_batch_valid = F.interpolate(enhanced_batch_valid, scale_factor=4.0, mode='bilinear', align_corners=False)
             mean_metrics['valid_psnr'].append(valid_psnr_batch.item())
             mean_metrics['valid_ssim'].append(valid_ssim_batch.item())
             mean_metrics['valid_lpips'].append(torch.mean(valid_lpips_batch).item())
@@ -85,6 +96,7 @@ def eval_model(model, test_loader, metrics, rank=None, world_size = 1, eta = Fal
     #first you need to assert that test_loader is a dictionary
     if type(test_loader) != dict:
         test_loader = {'data': test_loader}
+
     if len(test_loader) > 1:
         all_metrics = {}
         all_imgs_dict = {}

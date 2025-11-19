@@ -523,7 +523,7 @@ class EnhanceLoss(nn.Module):
                               criterion = criterion,
                               reduction = 'mean')
         
-    def forward(self, gt, enhanced, scale_factor = 16):
+    def forward(self, gt, enhanced, scale_factor = 1/8):
         gt_low_res = F.interpolate(gt, scale_factor=scale_factor, mode = 'nearest')
         return self.vgg19(gt_low_res, enhanced) + self.loss_weight * self.criterion(gt_low_res, enhanced)
     
