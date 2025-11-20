@@ -148,7 +148,7 @@ def create_test_data(rank, world_size, opt):
                 batch_size=batch_size_test, 
                 shuffle=False,
                 num_workers=num_workers, 
-                pin_memory=True, 
+                pin_memory=False, 
                 drop_last=False,
                 sampler=test_sampler
             )
@@ -159,7 +159,7 @@ def create_test_data(rank, world_size, opt):
                 batch_size=batch_size_test, 
                 shuffle=False,
                 num_workers=num_workers, 
-                pin_memory=True, 
+                pin_memory=False, 
                 drop_last=False
             )
             samplers = None

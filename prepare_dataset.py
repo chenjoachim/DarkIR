@@ -48,10 +48,17 @@ def create_dataset_structure(output_dir):
     return dirs
 
 
-def copy_files(source_files, dest_dir, desc="Copying"):
-    """Copy files with progress bar"""
+def copy_files(source_files, dest_dir, desc="Copying", use_symlinks=False):
+    """Copy or symlink files with progress bar"""
     for src in tqdm(source_files, desc=desc):
-        shutil.copy2(src, dest_dir)
+        dest_path = os.path.join(dest_dir, src.name)
+        if use_symlinks:
+            # Create symbolic link to source file
+            if os.path.exists(dest_path):
+                os.unlink(dest_path)
+            os.symlink(os.path.abspath(src), dest_path)
+        else:
+            shutil.copy2(src, dest_dir)
 
 
 def verify_pairs(low_dir, high_dir):
@@ -214,22 +221,27 @@ def main():
     
     # Copy or symlink files
     action = "Copying" if args.copy else "Linking"
+    use_symlinks = not args.copy
     
     copy_files(train_low, 
                os.path.join(args.output, 'train', 'low'),
-               f"{action} train low images")
+               f"{action} train low images",
+               use_symlinks=use_symlinks)
     
     copy_files(train_high,
                os.path.join(args.output, 'train', 'high'),
-               f"{action} train high images")
+               f"{action} train high images",
+               use_symlinks=use_symlinks)
     
     copy_files(test_low,
                os.path.join(args.output, 'test', 'low'),
-               f"{action} test low images")
+               f"{action} test low images",
+               use_symlinks=use_symlinks)
     
     copy_files(test_high,
                os.path.join(args.output, 'test', 'high'),
-               f"{action} test high images")
+               f"{action} test high images",
+               use_symlinks=use_symlinks)
     
     print()
     print("="*60)

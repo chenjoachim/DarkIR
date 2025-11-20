@@ -9,9 +9,9 @@ datasets:
   name: Custom  # Name of your dataset
   train:
     train_path: finetune_dataset/train  # Path to training data (should have 'low' and 'high' subdirectories)
-    batch_size: 1
+    batch_size: 4
     cropsize: 256  # Random crop size for training
-    n_workers: 4  # Number of data loading workers per GPU
+    n_workers: 0  # Number of data loading workers per GPU
     verbose: True
   val:
     test_path: finetune_dataset/test  # Path to validation data
