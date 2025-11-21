@@ -33,7 +33,7 @@ def get_image_files(directory):
     return sorted(image_files)
 
 
-def create_dataset_structure(output_dir):
+def create_dataset_structure(output_dir, include_exif=False):
     """Create the required directory structure"""
     dirs = [
         os.path.join(output_dir, 'train', 'low'),
@@ -41,6 +41,10 @@ def create_dataset_structure(output_dir):
         os.path.join(output_dir, 'test', 'low'),
         os.path.join(output_dir, 'test', 'high'),
     ]
+    
+    if include_exif:
+        dirs.append(os.path.join(output_dir, 'train', 'exif'))
+        dirs.append(os.path.join(output_dir, 'test', 'exif'))
     
     for d in dirs:
         os.makedirs(d, exist_ok=True)
@@ -107,7 +111,7 @@ def verify_pairs(low_dir, high_dir):
     return len(matched_low) > 0
 
 
-def split_dataset(low_files, high_files, train_ratio=0.9):
+def split_dataset(low_files, high_files, train_ratio=0.9, exif_files=None):
     """Split dataset into train and test sets
     
     Handles many-to-one mapping where multiple low images share the same high image.
@@ -119,6 +123,19 @@ def split_dataset(low_files, high_files, train_ratio=0.9):
         prefix = high_file.stem.split('_')[0] if '_' in high_file.stem else high_file.stem
         high_dict[prefix] = high_file
     
+    # Create mapping of exif files by low filename (without extension)
+    exif_dict = {}
+    if exif_files:
+        for exif_file in exif_files:
+            # Expected format: filename_exif.json -> key: filename
+            # or just filename.json -> key: filename
+            stem = exif_file.stem
+            if stem.endswith('_exif'):
+                key = stem[:-5]
+            else:
+                key = stem
+            exif_dict[key] = exif_file
+
     # Group low files by prefix
     low_by_prefix = {}
     for low_file in low_files:
@@ -139,8 +156,10 @@ def split_dataset(low_files, high_files, train_ratio=0.9):
     # Collect train and test files
     train_low = []
     train_high = []
+    train_exif = []
     test_low = []
     test_high = []
+    test_exif = []
     
     for prefix in all_prefixes:
         high_file = high_dict[prefix]
@@ -150,12 +169,26 @@ def split_dataset(low_files, high_files, train_ratio=0.9):
             for low_file in low_files_for_prefix:
                 train_low.append(low_file)
                 train_high.append(high_file)
+                if exif_files:
+                    if low_file.stem in exif_dict:
+                        train_exif.append(exif_dict[low_file.stem])
+                    else:
+                        # Try prefix match if exact match fails
+                        if prefix in exif_dict:
+                             train_exif.append(exif_dict[prefix])
         else:
             for low_file in low_files_for_prefix:
                 test_low.append(low_file)
                 test_high.append(high_file)
+                if exif_files:
+                    if low_file.stem in exif_dict:
+                        test_exif.append(exif_dict[low_file.stem])
+                    else:
+                        # Try prefix match if exact match fails
+                        if prefix in exif_dict:
+                             test_exif.append(exif_dict[prefix])
     
-    return train_low, train_high, test_low, test_high
+    return train_low, train_high, test_low, test_high, train_exif, test_exif
 
 
 def main():
@@ -164,6 +197,8 @@ def main():
                         help='Directory containing low-light images')
     parser.add_argument('--source_high', type=str, required=True,
                         help='Directory containing normal-light (ground truth) images')
+    parser.add_argument('--source_exif', type=str, default=None,
+                        help='Directory containing EXIF json files (optional)')
     parser.add_argument('--output', type=str, required=True,
                         help='Output directory for organized dataset')
     parser.add_argument('--train_ratio', type=float, default=0.9,
@@ -192,6 +227,14 @@ def main():
     low_files = get_image_files(args.source_low)
     high_files = get_image_files(args.source_high)
     
+    exif_files = []
+    if args.source_exif:
+        if not os.path.exists(args.source_exif):
+            print(f"Error: Source exif directory not found: {args.source_exif}")
+            return
+        exif_files = sorted(list(Path(args.source_exif).glob('*.json')))
+        print(f"Found {len(exif_files)} EXIF json files")
+
     print(f"Found {len(low_files)} low-light images")
     print(f"Found {len(high_files)} normal-light images")
     print()
@@ -206,17 +249,20 @@ def main():
     
     # Create output structure
     print(f"Creating dataset structure in {args.output}...")
-    create_dataset_structure(args.output)
+    create_dataset_structure(args.output, include_exif=bool(exif_files))
     print()
     
     # Split dataset
     print(f"Splitting dataset (train ratio: {args.train_ratio})...")
-    train_low, train_high, test_low, test_high = split_dataset(
-        low_files, high_files, args.train_ratio
+    train_low, train_high, test_low, test_high, train_exif, test_exif = split_dataset(
+        low_files, high_files, args.train_ratio, exif_files
     )
     
     print(f"Train set: {len(train_low)} pairs")
     print(f"Test set: {len(test_low)} pairs")
+    if exif_files:
+        print(f"Train EXIF: {len(train_exif)} files")
+        print(f"Test EXIF: {len(test_exif)} files")
     print()
     
     # Copy or symlink files
@@ -242,6 +288,17 @@ def main():
                os.path.join(args.output, 'test', 'high'),
                f"{action} test high images",
                use_symlinks=use_symlinks)
+               
+    if exif_files:
+        copy_files(train_exif,
+                   os.path.join(args.output, 'train', 'exif'),
+                   f"{action} train exif files",
+                   use_symlinks=use_symlinks)
+        
+        copy_files(test_exif,
+                   os.path.join(args.output, 'test', 'exif'),
+                   f"{action} test exif files",
+                   use_symlinks=use_symlinks)
     
     print()
     print("="*60)
@@ -252,18 +309,28 @@ def main():
     print(f"  {args.output}/")
     print(f"  ├── train/")
     print(f"  │   ├── low/     ({len(train_low)} images)")
-    print(f"  │   └── high/    ({len(train_high)} images)")
+    print(f"  │   ├── high/    ({len(train_high)} images)")
+    if exif_files:
+        print(f"  │   └── exif/    ({len(train_exif)} files)")
     print(f"  └── test/")
     print(f"      ├── low/     ({len(test_low)} images)")
-    print(f"      └── high/    ({len(test_high)} images)")
+    print(f"      ├── high/    ({len(test_high)} images)")
+    if exif_files:
+        print(f"      └── exif/    ({len(test_exif)} files)")
     print()
     print("Next steps:")
     print("1. Update the config file with your dataset path:")
     print(f"   train_path: {args.output}/train")
     print(f"   test_path: {args.output}/test")
+    if exif_files:
+        print(f"   exif_path: {args.output}/train/exif (for train)")
+        print(f"   exif_path: {args.output}/test/exif (for val)")
     print()
     print("2. Start finetuning:")
-    print("   python finetune.py -p options/finetune/finetune_default.yml")
+    if exif_files:
+        print("   python finetune.py -p options/finetune/finetune_exif.yml")
+    else:
+        print("   python finetune.py -p options/finetune/finetune_default.yml")
     print()
 
 

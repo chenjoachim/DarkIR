@@ -96,13 +96,16 @@ def create_test_data(rank, world_size, opt):
                                                 world_size = 1)
     elif name == 'Custom':
         # Handle custom dataset similar to training data
-        from .dataset_reader.datapipeline import MyDataset_Crop
+        from .dataset_reader.datapipeline import MyDataset_Crop, MyDataset_Crop_EXIF
         import torchvision.transforms as transforms
         from torch.utils.data import DataLoader, DistributedSampler
         
         # Get image paths
         low_dir = os.path.join(test_path, 'low')
         high_dir = os.path.join(test_path, 'high')
+        
+        use_exif = opt['val'].get('use_exif', False)
+        exif_dir = opt['val'].get('exif_path', None)
         
         if not os.path.exists(low_dir) or not os.path.exists(high_dir):
             raise ValueError(f"Custom dataset requires 'low' and 'high' subdirectories in {test_path}")
@@ -119,12 +122,18 @@ def create_test_data(rank, world_size, opt):
         # Match low images to high images based on prefix
         paths_low_test = []
         paths_high_test = []
+        paths_exif_test = []
         
         for low_file in low_files:
             prefix = low_file.split('_')[0] if '_' in low_file else os.path.splitext(low_file)[0]
             if prefix in high_dict:
                 paths_low_test.append(os.path.join(low_dir, low_file))
                 paths_high_test.append(high_dict[prefix])
+                
+                if use_exif and exif_dir:
+                    low_filename_no_ext = os.path.splitext(low_file)[0]
+                    exif_filename = f"{low_filename_no_ext}_exif.json"
+                    paths_exif_test.append(os.path.join(exif_dir, exif_filename))
         
         if verbose:
             print(f'Test images found: {len(paths_low_test)} low-light, {len(high_files)} unique normal-light')
@@ -132,14 +141,26 @@ def create_test_data(rank, world_size, opt):
         
         # Create dataset
         tensor_transform = transforms.ToTensor()
-        test_dataset = MyDataset_Crop(
-            paths_low_test, 
-            paths_high_test, 
-            cropsize=None,
-            tensor_transform=tensor_transform, 
-            test=True,
-            crop_type='Center'
-        )
+        
+        if use_exif and exif_dir:
+            test_dataset = MyDataset_Crop_EXIF(
+                paths_low_test, 
+                paths_high_test, 
+                paths_exif_test,
+                cropsize=None,
+                tensor_transform=tensor_transform, 
+                test=True,
+                crop_type='Center'
+            )
+        else:
+            test_dataset = MyDataset_Crop(
+                paths_low_test, 
+                paths_high_test, 
+                cropsize=None,
+                tensor_transform=tensor_transform, 
+                test=True,
+                crop_type='Center'
+            )
         
         if world_size > 1:
             test_sampler = DistributedSampler(test_dataset, num_replicas=world_size, shuffle=False, rank=rank)

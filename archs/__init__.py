@@ -20,7 +20,8 @@ def create_model(opt, rank, adapter = False, allow_unused_params = False):
                     enc_blk_nums=opt['enc_blk_nums'],
                     dec_blk_nums=opt['dec_blk_nums'], 
                     dilations=opt['dilations'],
-                    extra_depth_wise=opt['extra_depth_wise'])
+                    extra_depth_wise=opt['extra_depth_wise'],
+                    vec_dim=opt.get('vec_dim', None))
 
     if rank ==0:
         print(f'Using {name} network')

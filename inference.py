@@ -12,6 +12,8 @@ parser.add_argument('-i', '--inp_path', type=str, default='./images/inputs',
                 help="Folder path")
 parser.add_argument('-o', '--out_path', type=str, default='./images/results', 
                 help="Folder path")
+parser.add_argument('--use_exif', action='store_true', help='Use EXIF data for inference')
+parser.add_argument('--exif_path', type=str, default=None, help='Path to EXIF json files')
 args = parser.parse_args()
 
 
@@ -44,6 +46,14 @@ def path_to_tensor(path):
     img = pil_to_tensor(img).unsqueeze(0)
     
     return img
+
+def load_exif(path):
+    with open(path, 'r') as f:
+        exif_raw_data = json.load(f)
+    
+    exif_data = exif_transform(exif_raw_data)
+    return exif_data.unsqueeze(0) # Add batch dimension
+
 def normalize_tensor(tensor):
     
     max_value = torch.max(tensor)
@@ -77,10 +87,22 @@ def load_model(model, path_weights):
         weights = {'module.' + key: value for key, value in weights.items()}
     else:
         weights = checkpoints['model_state_dict']
+    
+    # Filter out keys that don't match (e.g. if loading non-vec model into vec model)
+    model_dict = model.state_dict()
+    pretrained_dict = {k: v for k, v in weights.items() if k in model_dict}
+    
+    # Check if we are missing keys related to vec_proj
+    missing_keys = [k for k in model_dict.keys() if k not in pretrained_dict]
+    if missing_keys:
+        print(f"Warning: {len(missing_keys)} keys missing in checkpoint. This is expected if initializing new layers (e.g. vec_proj).")
+        # print(f"Missing keys: {missing_keys}")
 
+    model_dict.update(pretrained_dict)
+    model.load_state_dict(model_dict)
+    
     macs, params = get_model_complexity_info(model, (3, 256, 256), print_per_layer_stat=False, verbose=False)
     print(macs, params)
-    model.load_state_dict(weights)
     print('Loaded weights correctly')
     
     return model
@@ -93,6 +115,9 @@ def predict_folder(rank, world_size):
     
     setup(rank, world_size=world_size, Master_port='12354')
     
+    if args.use_exif:
+        opt['network']['vec_dim'] = 6
+
     # DEFINE NETWORK, SCHEDULER AND OPTIMIZER
     model, _, _ = create_model(opt['network'], rank=rank)
 
@@ -115,6 +140,25 @@ def predict_folder(rank, world_size):
         tensor = path_to_tensor(path_img).to(device)
         _, _, H, W = tensor.shape
         
+        exif_data = None
+        if args.use_exif and args.exif_path:
+            filename_no_ext = os.path.splitext(os.path.basename(path_img))[0]
+            # Handle potential prefix issues if needed, similar to training
+            # For now assume direct mapping or simple prefix
+            
+            # Try direct match first
+            exif_file = os.path.join(args.exif_path, f"{filename_no_ext}_exif.json")
+            if not os.path.exists(exif_file):
+                 # Try splitting by underscore
+                 prefix = filename_no_ext.split('_')[0]
+                 exif_file = os.path.join(args.exif_path, f"{prefix}_exif.json")
+            
+            if os.path.exists(exif_file):
+                exif_data = load_exif(exif_file).to(device)
+            else:
+                print(f"Warning: EXIF file not found for {path_img}")
+
+        
         if resize and (H >=1500 or W>=1500):
             new_size = [int(dim//2) for dim in (H, W)]
             downsample = Resize(new_size)
@@ -125,7 +169,7 @@ def predict_folder(rank, world_size):
         tensor = pad_tensor(tensor)
 
         with torch.no_grad():
-            output = model(tensor, side_loss=False)
+            output = model(tensor, side_loss=False, vec=exif_data)
         if resize:
             upsample = Resize((H, W))
         else: upsample = torch.nn.Identity()

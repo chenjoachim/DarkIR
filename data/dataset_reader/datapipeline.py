@@ -159,21 +159,85 @@ class MyDataset_Crop(Dataset):
     
         return rgb_high, rgb_low
     
+def exif_transform(exif_raw_data):
+    exposure_time_val = exif_raw_data.get('ExposureTime', '1/10')
+    exposure_time_str = str(exposure_time_val)
+    if '/' in exposure_time_str:
+        numerator, denominator = exposure_time_str.split('/')
+        exposure_time = float(numerator) / float(denominator)
+    else:
+        try:
+            exposure_time = float(exposure_time_str)
+        except ValueError:
+            exposure_time = 0.1
+    
+    f_number = float(exif_raw_data.get('FNumber', 4.0))       
+    iso = float(exif_raw_data.get('ISO', 100))
+    
+    focal_length_val = exif_raw_data.get('FocalLength', '0')
+    focal_length_str = str(focal_length_val)
+    if 'mm' in focal_length_str:
+        focal_length = float(focal_length_str.replace('mm', '').strip())
+    else:
+        try:
+            focal_length = float(focal_length_str)
+        except ValueError:
+            focal_length = 0.0
+    
+    wb_level_val = exif_raw_data.get('WB_RGGBLevels', '1024 1024 1024 1024')
+    if isinstance(wb_level_val, str):
+        wb_levels = [float(x) for x in wb_level_val.split()]
+    elif isinstance(wb_level_val, list):
+        wb_levels = [float(x) for x in wb_level_val]
+    else:
+        wb_levels = [1024.0, 1024.0, 1024.0, 1024.0]
+        
+    if len(wb_levels) < 4:
+            wb_levels = [1024.0, 1024.0, 1024.0, 1024.0]
+
+    r_g_ratio = wb_levels[0] / wb_levels[1] if wb_levels[1] != 0 else 1.0
+    b_g_ratio = wb_levels[3] / wb_levels[1] if wb_levels[1] != 0 else 1.0
+    
+    # Normalize
+    # exposure_time: log scale, mapped roughly to [0, 1] for 1/4000s to 30s
+    norm_exposure_time = (np.log10(exposure_time + 1e-5) + 4) / 6 
+    
+    # f_number: linear scale, mapped [0, 1] for f/1.0 to f/32.0
+    norm_f_number = f_number / 32.0
+    
+    # iso: log scale, mapped [0, 1] for ISO 50 to 102400
+    norm_iso = np.log10(iso + 1e-5) / 6.0
+    
+    # focal_length: linear scale, mapped [0, 1] for 0mm to 500mm
+    norm_focal_length = focal_length / 500.0
+    
+    # r_g_ratio, b_g_ratio: linear scale, mapped [0, 1] for 0 to 5
+    norm_r_g_ratio = r_g_ratio / 5.0
+    norm_b_g_ratio = b_g_ratio / 5.0
+
+    exif_data = torch.tensor([
+        norm_exposure_time,
+        norm_f_number,
+        norm_iso,
+        norm_focal_length,
+        norm_r_g_ratio,
+        norm_b_g_ratio
+    ], dtype=torch.float32)
+    
+    return exif_data
+
 class MyDataset_Crop_EXIF(MyDataset_Crop):
     def __init__(self, images_low, images_high, exif_path, cropsize=None, tensor_transform=None, flips=None, test=False, crop_type='Random'):
         super().__init__(images_low, images_high, cropsize, tensor_transform, flips, test, crop_type)
         self.exif_path = sorted(exif_path)
-
+        
     def __getitem__(self, idx):
         rgb_high, rgb_low = super().__getitem__(idx)
         meta = self.exif_path[idx]
         with open(meta, 'r') as f:
             exif_raw_data = json.load(f)
-        exif_data = [exif_raw_data.get('ExposureTime', 0.0),
-                     exif_raw_data.get('FNumber', 0.0),
-                     exif_raw_data.get('ISOSpeedRatings', 0.0),
-                     exif_raw_data.get('FocalLength', 0.0)]
-        exif_data = torch.tensor(exif_data, dtype=torch.float32)
+        
+        exif_data = exif_transform(exif_raw_data)
         return rgb_high, rgb_low, exif_data
 if __name__== '__main__':
     tensor = torch.rand([1, 3, 1000, 1000])

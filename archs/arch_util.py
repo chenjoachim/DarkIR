@@ -53,11 +53,15 @@ class CustomSequential(nn.Module):
         super(CustomSequential, self).__init__()
         self.modules_list = nn.ModuleList(args)
 
-    def forward(self, x, use_adapter=False):
+    def forward(self, x, use_adapter=False, vec=None):
         for module in self.modules_list:
             if hasattr(module, 'set_use_adapters'):
                 module.set_use_adapters(use_adapter)
-            x = module(x)
+            
+            if vec is not None and getattr(module, 'accepts_vec', False):
+                x = module(x, vec=vec)
+            else:
+                x = module(x)
         return x
 
 if __name__ == '__main__':

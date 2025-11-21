@@ -17,7 +17,8 @@ class DarkIR(nn.Module):
                  enc_blk_nums=[1, 2, 3], 
                  dec_blk_nums=[3, 1, 1],  
                  dilations = [1, 4, 9], 
-                 extra_depth_wise = True):
+                 extra_depth_wise = True,
+                 vec_dim = None):
         super(DarkIR, self).__init__()
         
         self.intro = nn.Conv2d(in_channels=img_channel, out_channels=width, kernel_size=3, padding=1, stride=1, groups=1,
@@ -35,7 +36,7 @@ class DarkIR(nn.Module):
         for num in enc_blk_nums:
             self.encoders.append(
                 CustomSequential(
-                    *[EBlock(chan, extra_depth_wise=extra_depth_wise) for _ in range(num)]
+                    *[EBlock(chan, extra_depth_wise=extra_depth_wise, vec_dim=vec_dim) for _ in range(num)]
                 )
             )
             self.downs.append(
@@ -45,7 +46,7 @@ class DarkIR(nn.Module):
 
         self.middle_blks_enc = \
             CustomSequential(
-                *[EBlock(chan, extra_depth_wise=extra_depth_wise) for _ in range(middle_blk_num_enc)]
+                *[EBlock(chan, extra_depth_wise=extra_depth_wise, vec_dim=vec_dim) for _ in range(middle_blk_num_enc)]
             )
         self.middle_blks_dec = \
             CustomSequential(
@@ -71,7 +72,7 @@ class DarkIR(nn.Module):
         self.side_out = nn.Conv2d(in_channels = width * 2**len(self.encoders), out_channels = img_channel, 
                                 kernel_size = 3, stride=1, padding=1)
         
-    def forward(self, input, side_loss = False, use_adapter = None):
+    def forward(self, input, side_loss = False, use_adapter = None, vec=None):
 
         _, _, H, W = input.shape
 
@@ -80,12 +81,12 @@ class DarkIR(nn.Module):
         
         skips = []
         for encoder, down in zip(self.encoders, self.downs):
-            x = encoder(x)
+            x = encoder(x, vec=vec)
             skips.append(x)
             x = down(x)
 
         # we apply the encoder transforms
-        x_light = self.middle_blks_enc(x)
+        x_light = self.middle_blks_enc(x, vec=vec)
         
         if side_loss:
             out_side = self.side_out(x_light)

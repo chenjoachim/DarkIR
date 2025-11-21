@@ -46,7 +46,13 @@ def eval_one_loader(model, test_loader, metrics, rank=0, world_size = 1, eta = F
     if eta: pbar = tqdm(total = int(len(test_loader)))
     with torch.no_grad():
         # Now we need to go over the test_loader and evaluate the results of the epoch
-        for high_batch_valid, low_batch_valid in test_loader:
+        for batch_data in test_loader:
+            if len(batch_data) == 3:
+                 high_batch_valid, low_batch_valid, exif_data = batch_data
+                 exif_data = exif_data.to(rank)
+            else:
+                 high_batch_valid, low_batch_valid = batch_data
+                 exif_data = None
 
             high_batch_valid = high_batch_valid.to(rank)
             low_batch_valid = low_batch_valid.to(rank)         
@@ -57,7 +63,7 @@ def eval_one_loader(model, test_loader, metrics, rank=0, world_size = 1, eta = F
                 downsampled = True
                 high_batch_valid = F.interpolate(high_batch_valid, scale_factor=0.25, mode='bilinear', align_corners=False)
                 low_batch_valid = F.interpolate(low_batch_valid, scale_factor=0.25, mode='bilinear', align_corners=False)
-            enhanced_batch_valid = model(low_batch_valid)
+            enhanced_batch_valid = model(low_batch_valid, vec=exif_data)
             # loss
             valid_loss_batch = torch.mean((high_batch_valid - enhanced_batch_valid)**2)
             valid_ssim_batch = calc_SSIM(enhanced_batch_valid, high_batch_valid)

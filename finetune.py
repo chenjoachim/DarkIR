@@ -89,6 +89,9 @@ def create_train_data(rank, world_size, opt):
     verbose = opt['train']['verbose']
     num_workers = opt['train']['n_workers']
     
+    use_exif = opt['train'].get('use_exif', False)
+    exif_dir = opt['train'].get('exif_path', None)
+    
     if rank != 0:
         verbose = False
     
@@ -109,6 +112,7 @@ def create_train_data(rank, world_size, opt):
     # Match low images to high images based on prefix
     paths_low_train = []
     paths_high_train = []
+    paths_exif_train = []
     unmatched_count = 0
     
     for low_file in low_files:
@@ -118,6 +122,11 @@ def create_train_data(rank, world_size, opt):
         if prefix in high_dict:
             paths_low_train.append(os.path.join(low_dir, low_file))
             paths_high_train.append(high_dict[prefix])
+            
+            if use_exif and exif_dir:
+                low_filename_no_ext = os.path.splitext(low_file)[0]
+                exif_filename = f"{low_filename_no_ext}_exif.json"
+                paths_exif_train.append(os.path.join(exif_dir, exif_filename))
         else:
             unmatched_count += 1
             if verbose and unmatched_count <= 5:
@@ -133,15 +142,27 @@ def create_train_data(rank, world_size, opt):
     tensor_transform = transforms.ToTensor()
     flips = transforms.RandomHorizontalFlip(p=0.5)
     
-    train_dataset = MyDataset_Crop(
-        paths_low_train, 
-        paths_high_train, 
-        cropsize=cropsize,
-        tensor_transform=tensor_transform, 
-        flips=flips,
-        test=False,
-        crop_type='Random'
-    )
+    if use_exif and exif_dir:
+        train_dataset = MyDataset_Crop_EXIF(
+            paths_low_train, 
+            paths_high_train, 
+            paths_exif_train,
+            cropsize=cropsize,
+            tensor_transform=tensor_transform, 
+            flips=flips,
+            test=False,
+            crop_type='Random'
+        )
+    else:
+        train_dataset = MyDataset_Crop(
+            paths_low_train, 
+            paths_high_train, 
+            cropsize=cropsize,
+            tensor_transform=tensor_transform, 
+            flips=flips,
+            test=False,
+            crop_type='Random'
+        )
     
     if world_size > 1:
         train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, shuffle=True, rank=rank)
@@ -215,7 +236,14 @@ def train_one_epoch(model, train_loader, optimizer, losses_dict, rank, world_siz
     if rank == 0:
         pbar = tqdm(total=num_batches, desc='Training')
     
-    for i, (high_batch, low_batch) in enumerate(train_loader):
+    for i, batch_data in enumerate(train_loader):
+        if len(batch_data) == 3:
+             high_batch, low_batch, exif_data = batch_data
+             exif_data = exif_data.to(rank)
+        else:
+             high_batch, low_batch = batch_data
+             exif_data = None
+
         high_batch = high_batch.to(rank)
         low_batch = low_batch.to(rank)
         
@@ -241,9 +269,9 @@ def train_one_epoch(model, train_loader, optimizer, losses_dict, rank, world_siz
             with torch.amp.autocast("cuda"):
                 # Forward pass
                 if use_side_loss:
-                    out_side, output = model(low_batch, side_loss=True)
+                    out_side, output = model(low_batch, side_loss=True, vec=exif_data)
                 else:
-                    output = model(low_batch)
+                    output = model(low_batch, vec=exif_data)
                 
                 # Calculate losses
                 total_loss = 0
@@ -281,9 +309,9 @@ def train_one_epoch(model, train_loader, optimizer, losses_dict, rank, world_siz
             # Standard precision training
             # Forward pass
             if use_side_loss:
-                out_side, output = model(low_batch, side_loss=True)
+                out_side, output = model(low_batch, side_loss=True, vec=exif_data)
             else:
-                output = model(low_batch)
+                output = model(low_batch, vec=exif_data)
             
             # Calculate losses
             total_loss = 0
@@ -348,13 +376,24 @@ def run_finetuning(rank, world_size):
     
     # Check if side loss is used to determine DDP settings
     use_side_loss = opt['train'].get('use_side_loss', False)
+    use_exif = opt['train'].get('use_exif', False)
+    exif_dir = opt['train'].get('exif_path', None)
+
+    if use_exif and exif_dir:
+        opt['network']['vec_dim'] = 6
     
     # Define network
     model, macs, params = create_model(opt['network'], rank=rank, allow_unused_params=not use_side_loss)
     
     # Load pretrained weights
     if opt['network'].get('pretrained_path'):
+        # If we are using EXIF (vec_dim=6) but loading a model without it (vec_dim=None),
+        # we need to be careful not to load weights for the new projection layers if they don't exist in checkpoint
+        # The load_pretrained_model function already handles filtering keys, so it should be fine.
+        # However, if we want to be explicit about ignoring certain keys or handling mismatches:
+        
         model = load_pretrained_model(model.module, opt['network']['pretrained_path'], rank)
+        
         # Re-wrap with DDP using the same settings
         model = torch.nn.parallel.DistributedDataParallel(
             model.to(rank), 

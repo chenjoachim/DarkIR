@@ -35,18 +35,31 @@ class Adapter(nn.Module):
 
 class FreMLP(nn.Module):
     
-    def __init__(self, nc, expand = 2):
+    def __init__(self, nc, expand = 2, vec_dim = None):
         super(FreMLP, self).__init__()
         self.process1 = nn.Sequential(
             nn.Conv2d(nc, expand * nc, 1, 1, 0),
             nn.LeakyReLU(0.1, inplace=True),
             nn.Conv2d(expand * nc, nc, 1, 1, 0))
+        
+        if vec_dim is not None:
+            self.vec_proj = nn.Linear(vec_dim, nc)
+            # Zero-initialize the projection layer to ensure no initial perturbation
+            nn.init.zeros_(self.vec_proj.weight)
+            nn.init.zeros_(self.vec_proj.bias)
+        else:
+            self.vec_proj = None
 
-    def forward(self, x):
+    def forward(self, x, vec=None):
         _, _, H, W = x.shape
         x_freq = torch.fft.rfft2(x, norm='backward')
         mag = torch.abs(x_freq)
         pha = torch.angle(x_freq)
+        
+        if self.vec_proj is not None and vec is not None:
+            cond = self.vec_proj(vec).view(-1, x.shape[1], 1, 1)
+            mag = mag + cond
+            
         mag = self.process1(mag)
         real = mag * torch.cos(pha)
         imag = mag * torch.sin(pha)
@@ -143,7 +156,7 @@ class EBlock(nn.Module):
     Change this block using Branch
     '''
     
-    def __init__(self, c, DW_Expand=2, dilations = [1], extra_depth_wise = False):
+    def __init__(self, c, DW_Expand=2, dilations = [1], extra_depth_wise = False, vec_dim=None):
         super().__init__()
         #we define the 2 branches
         self.dw_channel = DW_Expand * c 
@@ -167,7 +180,8 @@ class EBlock(nn.Module):
 
         self.norm1 = LayerNorm2d(c)
         self.norm2 = LayerNorm2d(c)
-        self.freq = FreMLP(nc = c, expand=2)
+        self.freq = FreMLP(nc = c, expand=2, vec_dim=vec_dim)
+        self.accepts_vec = (vec_dim is not None)
         self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
         self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
 
@@ -179,7 +193,7 @@ class EBlock(nn.Module):
 #    def set_use_adapters(self, use_adapters):
 #        self.use_adapters = use_adapters
 
-    def forward(self, inp):
+    def forward(self, inp, vec=None):
         y = inp
         x = self.norm1(inp)
         x = self.conv1(self.extra_conv(x))
@@ -193,7 +207,7 @@ class EBlock(nn.Module):
         y = inp + self.beta * x
         #second step
         x_step2 = self.norm2(y) # size [B, 2*C, H, W]
-        x_freq = self.freq(x_step2) # size [B, C, H, W]
+        x_freq = self.freq(x_step2, vec=vec) # size [B, C, H, W]
         x = y * x_freq 
         x = y + x * self.gamma
 
