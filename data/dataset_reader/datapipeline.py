@@ -1,5 +1,6 @@
 import numpy as np 
 import os
+import json
 
 from PIL import Image
 
@@ -157,7 +158,23 @@ class MyDataset_Crop(Dataset):
                 rgb_high, rgb_low = self.center_crop(rgb_high), self.center_crop(rgb_low)
     
         return rgb_high, rgb_low
+    
+class MyDataset_Crop_EXIF(MyDataset_Crop):
+    def __init__(self, images_low, images_high, exif_path, cropsize=None, tensor_transform=None, flips=None, test=False, crop_type='Random'):
+        super().__init__(images_low, images_high, cropsize, tensor_transform, flips, test, crop_type)
+        self.exif_path = sorted(exif_path)
 
+    def __getitem__(self, idx):
+        rgb_high, rgb_low = super().__getitem__(idx)
+        meta = self.exif_path[idx]
+        with open(meta, 'r') as f:
+            exif_raw_data = json.load(f)
+        exif_data = [exif_raw_data.get('ExposureTime', 0.0),
+                     exif_raw_data.get('FNumber', 0.0),
+                     exif_raw_data.get('ISOSpeedRatings', 0.0),
+                     exif_raw_data.get('FocalLength', 0.0)]
+        exif_data = torch.tensor(exif_data, dtype=torch.float32)
+        return rgb_high, rgb_low, exif_data
 if __name__== '__main__':
     tensor = torch.rand([1, 3, 1000, 1000])
     
