@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 def get_image_files(directory):
     """Get all image files from directory"""
-    extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff'}
+    extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff', '.arw'}
     image_files = []
     
     for ext in extensions:

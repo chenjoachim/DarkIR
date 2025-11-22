@@ -1,6 +1,7 @@
 import numpy as np 
 import os
 import json
+import rawpy
 
 from PIL import Image
 
@@ -133,16 +134,28 @@ class MyDataset_Crop(Dataset):
         Then it returns the image, after applying any required transformation.
         """
         
-        img_low  = self.imgs_low[idx]
-        img_high = self.imgs_high[idx]
+        img_low_path  = self.imgs_low[idx]
+        img_high_path = self.imgs_high[idx]
         
-        # Load the image and convert to numpy array
-        rgb_low  = Image.open(img_low).convert('RGB')
-        rgb_high = Image.open(img_high).convert('RGB')
+        def load_image(path):
+            if path.lower().endswith(('.arw', '.tiff', '.tif')):
+                with rawpy.imread(path) as raw:
+                    # output_bps=16 returns uint16 array, RGB
+                    img_np = raw.postprocess(output_bps=16)
+                # Normalize 16-bit to 0-1 float
+                img_tensor = torch.from_numpy(img_np.astype(np.float32) / 65535.0)
+                # HWC to CHW
+                img_tensor = img_tensor.permute(2, 0, 1)
+                return img_tensor
+            else:
+                # Standard 8-bit image loading
+                img = Image.open(path).convert('RGB')
+                if self.to_tensor:
+                    return self.to_tensor(img)
+                return transforms.ToTensor()(img)
 
-        if self.to_tensor: #transform the image to have the adequate properties
-            rgb_low  = self.to_tensor(rgb_low)
-            rgb_high = self.to_tensor(rgb_high)
+        rgb_low = load_image(img_low_path)
+        rgb_high = load_image(img_high_path)
 
         # stack high and low to do the exact same flip on the two images
         high_and_low = torch.stack((rgb_high, rgb_low))

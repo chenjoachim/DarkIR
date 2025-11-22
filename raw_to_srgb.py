@@ -1,5 +1,5 @@
 import rawpy
-import imageio
+import cv2
 import argparse
 import os
 import glob
@@ -11,15 +11,15 @@ def raw_to_srgb(raw_image_path, output_image_path):
 
     Parameters:
     - raw_image_path: str, path to the input RAW image file.
-    - output_image_path: str, path to save the output sRGB image file.
+    - output_image_path: str, path to save the output sRGB image file, but 16-bit PNG.
     """
     # Read the RAW image using rawpy
     with rawpy.imread(raw_image_path) as raw:
         # Post-process the RAW image to get an sRGB image
-        rgb_image = raw.postprocess()
+        rgb_image = raw.postprocess(output_bps=16)
 
-    # Save the sRGB image using imageio
-    imageio.imsave(output_image_path, rgb_image)
+    # Save the sRGB image
+    cv2.imwrite(output_image_path, cv2.cvtColor(rgb_image, cv2.COLOR_RGB2BGR))
 
 def parser_args():
     parser = argparse.ArgumentParser(description="Convert RAW/TIFF images to sRGB format")
