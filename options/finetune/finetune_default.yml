@@ -46,16 +46,16 @@ train:
 losses:
   main_loss:
     type: CharbonnierLoss  # L1Loss, MSELoss, CharbonnierLoss
-    weight: 1.0
+    weight: 1
   
-  ssim_loss:
-    type: SSIMloss
-    weight: 0.05
+  # ssim_loss:
+  #   type: SSIMloss
+  #   weight: 0.05
   
   # Optional: Uncomment to use perceptual loss
-  # perceptual_loss:
-  #   type: VGGLoss
-  #   weight: 0.01
+  perceptual_loss:
+    type: VGGLoss
+    weight: 0.01
   
   # Optional: Uncomment to use frequency loss
   # frequency_loss:
@@ -63,14 +63,14 @@ losses:
   #   weight: 0.01
   
   # Optional: Uncomment to use edge loss
-  # edge_loss:
-  #   type: EdgeLoss
-  #   weight: 0.1
+  edge_loss:
+    type: EdgeLoss
+    weight: 50
   
   # Optional: Enhancement loss for middle output (requires use_side_loss: True)
   enhance_loss:
     type: EnhanceLoss
-    weight: 0.5
+    weight: 1
 
 #### model saving
 save:

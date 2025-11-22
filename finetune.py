@@ -401,6 +401,25 @@ def run_finetuning(rank, world_size):
             find_unused_parameters=not use_side_loss  # Allow unused params when side_loss is disabled
         )
     
+    # Freeze backbone if requested
+    if opt['train'].get('freeze_backbone', False):
+        if rank == 0:
+            print('Freezing backbone, training only vec_proj...')
+        
+        # Access the underlying model (handle DDP wrapper)
+        if hasattr(model, 'module'):
+            model_to_freeze = model.module
+        else:
+            model_to_freeze = model
+            
+        for name, param in model_to_freeze.named_parameters():
+            if 'vec_proj' in name:
+                param.requires_grad = True
+                if rank == 0:
+                    print(f'  Training: {name}')
+            else:
+                param.requires_grad = False
+
     # Define optimizer and scheduler
     optimizer, scheduler = create_optim_scheduler(opt['train'], model)
     

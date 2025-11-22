@@ -8,18 +8,18 @@ gpu: "0"  # GPU device to use
 datasets:
   name: Custom  # Name of your dataset
   train:
-    train_path: finetune_dataset/train  # Path to training data (should have 'low' and 'high' subdirectories)
+    train_path: ../dataset/finetune/train  # Path to training data (should have 'low' and 'high' subdirectories)
     batch_size: 4
     cropsize: 256  # Random crop size for training
     n_workers: 0  # Number of data loading workers per GPU
     verbose: True
     use_exif: True
-    exif_path: finetune_dataset/train/exif # Path to folder containing json files
+    exif_path: ../dataset/finetune/train/exif # Path to folder containing json files
   val:
-    test_path: finetune_dataset/test  # Path to validation data
+    test_path: ../dataset/finetune/test  # Path to validation data
     batch_size_test: 1
     use_exif: True
-    exif_path: finetune_dataset/test/exif # Path to folder containing json files
+    exif_path: ../dataset/finetune/test/exif # Path to folder containing json files
 
 #### network structures
 network:
@@ -38,8 +38,8 @@ network:
 
 #### training settings
 train:
-  epochs: 3
-  lr_initial: 0.00005  # Initial learning rate (reduced for finetuning)
+  epochs: 15
+  lr_initial: 0.0001  # Initial learning rate (reduced for finetuning)
   lr_scheme: CosineAnnealing
   eta_min: 0.000001  # Minimum learning rate
   weight_decay: 0.0001
@@ -47,22 +47,22 @@ train:
   use_side_loss: True  # Disable since EnhanceLoss is commented out
   use_fp16: False  # Disable mixed precision to avoid potential numerical issues
   use_exif: True
-  exif_path: finetune_dataset/train/exif
+  exif_path: ../dataset/finetune/train/exif
 
 #### loss functions
 losses:
   main_loss:
     type: CharbonnierLoss  # L1Loss, MSELoss, CharbonnierLoss
-    weight: 1.0
+    weight: 1
   
-  ssim_loss:
-    type: SSIMloss
-    weight: 0.05
+  # ssim_loss:
+  #   type: SSIMloss
+  #   weight: 0.05
   
   # Optional: Uncomment to use perceptual loss
-  # perceptual_loss:
-  #   type: VGGLoss
-  #   weight: 0.01
+  perceptual_loss:
+    type: VGGLoss
+    weight: 0.01
   
   # Optional: Uncomment to use frequency loss
   # frequency_loss:
@@ -70,25 +70,25 @@ losses:
   #   weight: 0.01
   
   # Optional: Uncomment to use edge loss
-  # edge_loss:
-  #   type: EdgeLoss
-  #   weight: 0.1
+  edge_loss:
+    type: EdgeLoss
+    weight: 50
   
   # Optional: Enhancement loss for middle output (requires use_side_loss: True)
   enhance_loss:
     type: EnhanceLoss
-    weight: 0.5
+    weight: 1
 
 #### model saving
 save:
-  path: ./models/finetuned_exif  # Directory to save finetuned models
+  path: ./models/finetuned_exif_modified_loss  # Directory to save finetuned models
 
 #### wandb logging (optional)
 wandb:
   init: True  # Set to True to enable Weights & Biases logging
   project: DarkIR-Finetune
   entity: lllion66666 # Replace with your wandb username or team name
-  name: finetune_exif_experiment_1
+  name: finetune_exif_experiment_modified_loss
   save_code: True
   resume: False
   id: null
