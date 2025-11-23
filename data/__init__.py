@@ -110,8 +110,8 @@ def create_test_data(rank, world_size, opt):
         if not os.path.exists(low_dir) or not os.path.exists(high_dir):
             raise ValueError(f"Custom dataset requires 'low' and 'high' subdirectories in {test_path}")
         
-        low_files = sorted([f for f in os.listdir(low_dir) if f.endswith(('.png', '.jpg', '.jpeg', '.bmp'))])
-        high_files = sorted([f for f in os.listdir(high_dir) if f.endswith(('.png', '.jpg', '.jpeg', '.bmp'))])
+        low_files = sorted([f for f in os.listdir(low_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.arw', '.tiff', '.tif'))])
+        high_files = sorted([f for f in os.listdir(high_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.arw', '.tiff', '.tif'))])
         
         # Create mapping of high images by their prefix
         high_dict = {}

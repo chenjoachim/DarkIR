@@ -156,7 +156,13 @@ def predict_folder(rank, world_size):
             else:
                 print(f"Warning: EXIF file not found for {path_img}")
 
-        tensor = path_to_tensor(path_img, exif_raw_data).to(device)
+        # Only pass exif_raw_data to image loader if it contains WB info
+        # Otherwise fall back to camera WB to avoid default Unit WB (green tint)
+        loader_exif = exif_raw_data
+        if exif_raw_data and 'WB_RGGBLevels' not in exif_raw_data:
+            loader_exif = None
+
+        tensor = path_to_tensor(path_img, exif_raw_data=loader_exif).to(device)
         _, _, H, W = tensor.shape
         
         if resize and (H >=1500 or W>=1500):
@@ -176,7 +182,10 @@ def predict_folder(rank, world_size):
         output = upsample(output)
         output = torch.clamp(output, 0., 1.)
         output = output[:,:, :H, :W]
-        save_tensor(output, os.path.join(PATH_RESULTS, os.path.basename(path_img)))
+        
+        # Save as PNG
+        filename = os.path.splitext(os.path.basename(path_img))[0]
+        save_tensor(output, os.path.join(PATH_RESULTS, filename + '.png'))
 
 
         pbar.update(1)

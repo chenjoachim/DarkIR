@@ -9,6 +9,7 @@ from lpips import LPIPS
 from tqdm import tqdm
 import numpy as np
 import re
+from data.dataset_reader.datapipeline import load_image as load_image_pipeline
 
 def calculate_metrics(pred_tensor, gt_tensor, calc_SSIM, calc_LPIPS):
     """Calculate PSNR, SSIM, LPIPS using pre-initialized models"""
@@ -31,9 +32,8 @@ def calculate_metrics(pred_tensor, gt_tensor, calc_SSIM, calc_LPIPS):
 
 def load_image(image_path, device):
     """Load and convert image to tensor"""
-    image = Image.open(image_path).convert('RGB')
-    transform = transforms.ToTensor()
-    return transform(image).unsqueeze(0).to(device)
+    tensor = load_image_pipeline(image_path)
+    return tensor.unsqueeze(0).to(device)
 
 def find_gt_by_prefix(pred_file, gt_files):
     """Find GT file with the same prefix number as pred_file"""
@@ -73,8 +73,8 @@ def main():
     calc_LPIPS.eval()
     
     # Get image pairs using prefix matching
-    pred_files = sorted([f for f in os.listdir(args.pred_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
-    gt_files = [f for f in os.listdir(args.gt_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    pred_files = sorted([f for f in os.listdir(args.pred_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.arw', '.tiff', '.tif'))])
+    gt_files = [f for f in os.listdir(args.gt_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.arw', '.tiff', '.tif'))]
     
     pairs = []
     for pred_file in pred_files:
