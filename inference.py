@@ -41,11 +41,9 @@ device = torch.device('cuda') if torch.cuda.is_available() else 'cpu'
 pil_to_tensor = transforms.ToTensor()
 tensor_to_pil = transforms.ToPILImage()
 
-def path_to_tensor(path):
-    img = Image.open(path).convert('RGB')
-    img = pil_to_tensor(img).unsqueeze(0)
-    
-    return img
+def path_to_tensor(path, exif_raw_data=None):
+    img = load_image(path, exif_raw_data)
+    return img.unsqueeze(0)
 
 def load_exif(path):
     with open(path, 'r') as f:
@@ -129,7 +127,7 @@ def predict_folder(rank, world_size):
     #create folder if it doen't exist
     os.makedirs(PATH_RESULTS, exist_ok=True)
 
-    path_images = [os.path.join(PATH_IMAGES, path) for path in os.listdir(PATH_IMAGES) if path.endswith(('.png', '.PNG', '.jpg', '.JPEG'))]
+    path_images = [os.path.join(PATH_IMAGES, path) for path in os.listdir(PATH_IMAGES) if path.lower().endswith(('.png', '.jpg', '.jpeg', '.arw', '.tiff', '.tif'))]
     path_images = [file for file in path_images if not file.endswith('.csv') and not file.endswith('.txt')]
    
     model.eval()
@@ -137,10 +135,8 @@ def predict_folder(rank, world_size):
         pbar = tqdm(total = len(path_images))
         
     for path_img in path_images:
-        tensor = path_to_tensor(path_img).to(device)
-        _, _, H, W = tensor.shape
-        
         exif_data = None
+        exif_raw_data = None
         if args.use_exif and args.exif_path:
             filename_no_ext = os.path.splitext(os.path.basename(path_img))[0]
             # Handle potential prefix issues if needed, similar to training
@@ -154,10 +150,14 @@ def predict_folder(rank, world_size):
                  exif_file = os.path.join(args.exif_path, f"{prefix}_exif.json")
             
             if os.path.exists(exif_file):
-                exif_data = load_exif(exif_file).to(device)
+                with open(exif_file, 'r') as f:
+                    exif_raw_data = json.load(f)
+                exif_data = exif_transform(exif_raw_data).unsqueeze(0).to(device)
             else:
                 print(f"Warning: EXIF file not found for {path_img}")
 
+        tensor = path_to_tensor(path_img, exif_raw_data).to(device)
+        _, _, H, W = tensor.shape
         
         if resize and (H >=1500 or W>=1500):
             new_size = [int(dim//2) for dim in (H, W)]

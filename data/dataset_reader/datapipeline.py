@@ -2,6 +2,7 @@ import numpy as np
 import os
 import json
 import rawpy
+from typing import Optional
 
 from PIL import Image
 
@@ -21,6 +22,29 @@ def crop_center(img, cropx=224, cropy=256):
     startx = x//2-(cropx//2)
     starty = y//2-(cropy//2)    
     return img[starty:starty+cropy,startx:startx+cropx]
+
+def load_image(path: str, exif_raw_data: Optional[dict] = None) -> torch.Tensor:
+    if path.lower().endswith(('.arw', '.tiff', '.tif')):
+        with rawpy.imread(path) as raw:
+            # output_bps=16 returns uint16 array, RGB
+            if exif_raw_data is not None:
+                wb_level = exif_raw_data.get('WB_RGGBLevels', '1024 1024 1024 1024')
+                r_number = float(wb_level.split()[0])
+                g_number = float(wb_level.split()[1])
+                b_number = float(wb_level.split()[3])
+                white_balance = [r_number / g_number, 1.0, b_number / g_number, 1.0]
+                img_np = raw.postprocess(output_bps=16, user_wb=white_balance)
+            else: 
+                img_np = raw.postprocess(output_bps=16, use_camera_wb=True)
+        # Normalize 16-bit to 0-1 float
+        img_tensor = torch.from_numpy(img_np.astype(np.float32) / 65535.0)
+        # HWC to CHW
+        img_tensor = img_tensor.permute(2, 0, 1)
+        return img_tensor
+    else:
+        # Standard 8-bit image loading
+        img = Image.open(path).convert('RGB')
+        return transforms.ToTensor()(img)
 
 class CropTo4(nn.Module):
     '''
@@ -136,23 +160,6 @@ class MyDataset_Crop(Dataset):
         
         img_low_path  = self.imgs_low[idx]
         img_high_path = self.imgs_high[idx]
-        
-        def load_image(path):
-            if path.lower().endswith(('.arw', '.tiff', '.tif')):
-                with rawpy.imread(path) as raw:
-                    # output_bps=16 returns uint16 array, RGB
-                    img_np = raw.postprocess(output_bps=16)
-                # Normalize 16-bit to 0-1 float
-                img_tensor = torch.from_numpy(img_np.astype(np.float32) / 65535.0)
-                # HWC to CHW
-                img_tensor = img_tensor.permute(2, 0, 1)
-                return img_tensor
-            else:
-                # Standard 8-bit image loading
-                img = Image.open(path).convert('RGB')
-                if self.to_tensor:
-                    return self.to_tensor(img)
-                return transforms.ToTensor()(img)
 
         rgb_low = load_image(img_low_path)
         rgb_high = load_image(img_high_path)
@@ -245,10 +252,27 @@ class MyDataset_Crop_EXIF(MyDataset_Crop):
         self.exif_path = sorted(exif_path)
         
     def __getitem__(self, idx):
-        rgb_high, rgb_low = super().__getitem__(idx)
+        img_low_path  = self.imgs_low[idx]
+        img_high_path = self.imgs_high[idx]
         meta = self.exif_path[idx]
         with open(meta, 'r') as f:
             exif_raw_data = json.load(f)
+
+        rgb_low = load_image(img_low_path, exif_raw_data)
+        rgb_high = load_image(img_high_path)
+        
+        # stack high and low to do the exact same flip on the two images
+        high_and_low = torch.stack((rgb_high, rgb_low))
+        if self.flips:
+            high_and_low      = self.flips(high_and_low)
+            rgb_high, rgb_low = high_and_low #separate again the images
+        
+        # print(rgb_high.shape, rgb_low.shape)
+        if self.cropsize: # do random crops of the image
+            if self.random_crop:   
+                rgb_high, rgb_low = self.random_crop(rgb_high, rgb_low)
+            elif self.center_crop:
+                rgb_high, rgb_low = self.center_crop(rgb_high), self.center_crop(rgb_low)
         
         exif_data = exif_transform(exif_raw_data)
         return rgb_high, rgb_low, exif_data
