@@ -106,6 +106,7 @@ def create_test_data(rank, world_size, opt):
         
         use_exif = opt['val'].get('use_exif', False)
         exif_dir = opt['val'].get('exif_path', None)
+        target_8bit = opt['val'].get('target_8bit', True)
         
         if not os.path.exists(low_dir) or not os.path.exists(high_dir):
             raise ValueError(f"Custom dataset requires 'low' and 'high' subdirectories in {test_path}")
@@ -150,7 +151,8 @@ def create_test_data(rank, world_size, opt):
                 cropsize=None,
                 tensor_transform=tensor_transform, 
                 test=True,
-                crop_type='Center'
+                crop_type='Center',
+                target_8bit=target_8bit
             )
         else:
             test_dataset = MyDataset_Crop(
@@ -159,7 +161,8 @@ def create_test_data(rank, world_size, opt):
                 cropsize=None,
                 tensor_transform=tensor_transform, 
                 test=True,
-                crop_type='Center'
+                crop_type='Center',
+                target_8bit=target_8bit
             )
         
         if world_size > 1:

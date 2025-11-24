@@ -91,6 +91,7 @@ def create_train_data(rank, world_size, opt):
     
     use_exif = opt['train'].get('use_exif', False)
     exif_dir = opt['train'].get('exif_path', None)
+    target_8bit = opt['train'].get('target_8bit', True)
     
     if rank != 0:
         verbose = False
@@ -151,7 +152,8 @@ def create_train_data(rank, world_size, opt):
             tensor_transform=tensor_transform, 
             flips=flips,
             test=False,
-            crop_type='Random'
+            crop_type='Random',
+            target_8bit=target_8bit
         )
     else:
         train_dataset = MyDataset_Crop(
@@ -161,7 +163,8 @@ def create_train_data(rank, world_size, opt):
             tensor_transform=tensor_transform, 
             flips=flips,
             test=False,
-            crop_type='Random'
+            crop_type='Random',
+            target_8bit=target_8bit
         )
     
     if world_size > 1:

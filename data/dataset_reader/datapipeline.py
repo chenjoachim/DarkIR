@@ -124,7 +124,7 @@ class MyDataset_Crop(Dataset):
     A Dataset of the low and high light images with data values in each channel in the range 0-1 (normalized).
     """
     
-    def __init__(self, images_low, images_high, cropsize = None, tensor_transform = None, flips=None, test=False, crop_type = 'Random'):
+    def __init__(self, images_low, images_high, cropsize = None, tensor_transform = None, flips=None, test=False, crop_type = 'Random', target_8bit=False):
         """
         - images_high: list of RGB images of normal-light used for training or testing the model
         - images_low: list of RGB images of low-light used for training or testing the model
@@ -138,6 +138,7 @@ class MyDataset_Crop(Dataset):
         self.cropsize   = cropsize
         self.to_tensor  = tensor_transform
         self.flips      = flips
+        self.target_8bit = target_8bit
         
         if self.cropsize:
             if crop_type   == 'Random':
@@ -163,6 +164,9 @@ class MyDataset_Crop(Dataset):
 
         rgb_low = load_image(img_low_path)
         rgb_high = load_image(img_high_path)
+
+        if self.target_8bit:
+            rgb_high = torch.round(rgb_high * 255.0) / 255.0
 
         # stack high and low to do the exact same flip on the two images
         high_and_low = torch.stack((rgb_high, rgb_low))
@@ -247,8 +251,8 @@ def exif_transform(exif_raw_data):
     return exif_data
 
 class MyDataset_Crop_EXIF(MyDataset_Crop):
-    def __init__(self, images_low, images_high, exif_path, cropsize=None, tensor_transform=None, flips=None, test=False, crop_type='Random'):
-        super().__init__(images_low, images_high, cropsize, tensor_transform, flips, test, crop_type)
+    def __init__(self, images_low, images_high, exif_path, cropsize=None, tensor_transform=None, flips=None, test=False, crop_type='Random', target_8bit=False):
+        super().__init__(images_low, images_high, cropsize, tensor_transform, flips, test, crop_type, target_8bit)
         self.exif_path = sorted(exif_path)
         
     def __getitem__(self, idx):
@@ -260,6 +264,9 @@ class MyDataset_Crop_EXIF(MyDataset_Crop):
 
         rgb_low = load_image(img_low_path, exif_raw_data)
         rgb_high = load_image(img_high_path)
+        
+        if self.target_8bit:
+            rgb_high = torch.round(rgb_high * 255.0) / 255.0
         
         # stack high and low to do the exact same flip on the two images
         high_and_low = torch.stack((rgb_high, rgb_low))

@@ -95,6 +95,10 @@ def main():
             
             pred_img = load_image(pred_path, device)
             gt_img = load_image(gt_path, device)
+
+            # For scoring, turn the gt into 8-bit
+            gt_img = torch.clamp(gt_img, 0., 1.)
+            gt_img = (gt_img * 255.).round() / 255.
             
             # Resize if needed
             if pred_img.shape != gt_img.shape:
