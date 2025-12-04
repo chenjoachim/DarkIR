@@ -436,8 +436,5 @@ class Kernel(object):
 
 
 if __name__ == '__main__':
-    image = Image.open("./images/moon.png")
-    image.show()
-    k = Kernel()
-
-    k.applyTo(image, keep_image_dim=True).show()
+    k = Kernel(size=(100, 100), intensity=0.5)
+    k.displayKernel(save_to=Path("motion_blur_kernel.png"), show=True)
